@@ -1,0 +1,7 @@
+[package]
+name = "bench"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rumqttc = "0.24.0"

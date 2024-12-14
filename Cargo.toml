@@ -1,0 +1,12 @@
+[workspace]
+members = ["src/api", "src/bench", "src/bin", "src/types"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+api = { path = "src/api" }
+types = { path = "src/types" }
+bench = { path = "src/bench" }
