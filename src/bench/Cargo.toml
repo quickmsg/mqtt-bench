@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 rumqttc = "0.24.0"
+tokio = { workspace = true }
