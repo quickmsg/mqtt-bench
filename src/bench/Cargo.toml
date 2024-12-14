@@ -8,3 +8,4 @@ types = { workspace = true }
 
 rumqttc = "0.24.0"
 tokio = { workspace = true }
+futures = { version = "0.3.31", features = ["unstable", "bilock"] }

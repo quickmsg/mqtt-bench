@@ -11,7 +11,7 @@ pub struct MqttServerInfo {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ConnectBenchInfo {
-    pub client_count: u32,
+    pub client_count: usize,
     // 每秒的速率
     pub rate: u64,
 }
@@ -43,6 +43,7 @@ pub enum Qos {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ClientStatus {
+    pub ts: u64,
     pub succeed: usize,
     pub failed: usize,
 }
