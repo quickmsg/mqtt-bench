@@ -26,9 +26,12 @@ impl ClientV311 {
         mqtt_options.set_credentials(username, password);
 
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
-        while let Ok(notification) = eventloop.poll().await {
-            println!("Received = {:?}", notification);
-        }
+        tokio::spawn(async move {
+            while let Ok(notification) = eventloop.poll().await {
+                println!("Received = {:?}", notification);
+            }
+        });
+
         Self { client, err: None }
     }
 

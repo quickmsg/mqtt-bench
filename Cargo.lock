@@ -22,6 +22,9 @@ name = "api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bench",
+ "tokio",
+ "types",
 ]
 
 [[package]]
@@ -124,6 +127,10 @@ dependencies = [
 [[package]]
 name = "bin"
 version = "0.1.0"
+dependencies = [
+ "api",
+ "tokio",
+]
 
 [[package]]
 name = "bitflags"

@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct TaskCreateReq {
+    pub mqtt_server_info: MqttServerInfo,
+    pub connect_bench_info: ConnectBenchInfo,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct MqttServerInfo {
     pub addrs: Vec<(String, u16)>,
     pub username: Option<String>,
@@ -22,6 +28,7 @@ pub struct PubInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum MqttProtocolVersion {
     V311,
     V5,
@@ -41,7 +48,7 @@ pub enum Qos {
     ExactlyOnce,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatus {
     pub ts: u64,
     pub succeed: usize,
