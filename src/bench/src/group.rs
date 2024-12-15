@@ -7,24 +7,32 @@ use types::{
     SubscribeCreateUpdateReq,
 };
 
-use crate::client::{self, ClientV311};
+use crate::{
+    client::{self, ClientV311},
+    generate_id,
+};
 
 pub struct Group {
-    running: bool,
+    pub id: String,
     pub conf: Arc<GroupCreateUpdateReq>,
+    running: bool,
     clients: Option<BiLock<Vec<client::ClientV311>>>,
     status: Option<BiLock<Vec<ClientStatus>>>,
     broker_info: Arc<BrokerUpdateReq>,
+
+    publishes: Vec<Publish>,
 }
 
 impl Group {
-    pub fn new(broker_info: Arc<BrokerUpdateReq>, conf: GroupCreateUpdateReq) -> Self {
+    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, conf: GroupCreateUpdateReq) -> Self {
         Self {
-            running: false,
+            id,
             conf: Arc::new(conf),
+            running: false,
             clients: None,
             status: None,
             broker_info,
+            publishes: vec![],
         }
     }
 
@@ -65,7 +73,17 @@ impl Group {
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
-        todo!()
+        if self.running {
+            let mut clients_guard = self.clients.as_ref().unwrap().lock().await;
+            clients_guard
+                .iter_mut()
+                .for_each(|client| client.create_publish(req.clone()));
+        }
+
+        self.publishes.push(Publish {
+            id: generate_id(),
+            conf: req,
+        });
     }
 
     pub async fn list_publishes(&self) {
@@ -147,3 +165,10 @@ async fn connect(
     let client = client::ClientV311::new(client_conf).await;
     clients.lock().await.push(client);
 }
+
+pub struct Publish {
+    id: String,
+    conf: PublishCreateUpdateReq,
+}
+
+pub struct Subscribe {}

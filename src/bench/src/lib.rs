@@ -2,13 +2,18 @@ use std::sync::{Arc, LazyLock};
 
 use group::Group;
 use tokio::sync::RwLock;
-use types::{BrokerUpdateReq, GroupCreateUpdateReq};
+use types::{BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem};
+use uuid::Uuid;
 
 mod client;
 mod group;
 mod mqtt;
 
 static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::default());
+
+fn generate_id() -> String {
+    Uuid::new_v4().simple().to_string()
+}
 
 pub struct RuntimeInstance {
     pub broker_info: RwLock<Arc<BrokerUpdateReq>>,
@@ -41,19 +46,52 @@ pub async fn update_broker(info: BrokerUpdateReq) {
 }
 
 pub async fn create_group(req: GroupCreateUpdateReq) {
-    let group = Group::new(RUNTIME_INSTANCE.broker_info.read().await.clone(), req);
+    let group = Group::new(
+        generate_id(),
+        RUNTIME_INSTANCE.broker_info.read().await.clone(),
+        req,
+    );
     RUNTIME_INSTANCE.groups.write().await.push(group);
 }
 
-pub async fn list_groups() -> Vec<GroupCreateUpdateReq> {
+pub async fn list_groups() -> ListGroupResp {
     let groups = RUNTIME_INSTANCE.groups.read().await;
-    groups.iter().rev().map(|g| (*g.conf).clone()).collect()
+    let list: Vec<_> = groups
+        .iter()
+        .rev()
+        .map(|group| ListGroupRespItem {
+            id: group.id.clone(),
+            name: group.conf.name.clone(),
+            client_count: group.conf.client_count,
+        })
+        .collect();
+    ListGroupResp { list }
 }
 
 pub async fn start_group(group_id: String) {
-    RUNTIME_INSTANCE.groups.write().await[0].start().await;
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|g| g.id == group_id)
+        .unwrap()
+        .start()
+        .await;
 }
 
 pub async fn stop_group(group_id: String) {
     todo!()
+}
+
+pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq) {
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .create_publish(req)
+        .await;
 }

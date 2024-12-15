@@ -1,6 +1,13 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use rumqttc::{AsyncClient, MqttOptions};
+use tokio::{
+    select,
+    sync::{oneshot, watch},
+};
+use types::PublishCreateUpdateReq;
+
+use crate::generate_id;
 
 pub struct ClientConf {
     pub index: usize,
@@ -13,26 +20,65 @@ pub struct ClientConf {
 }
 
 pub struct ClientV311 {
-    client: AsyncClient,
+    running: bool,
+    conf: ClientConf,
+    client: Option<AsyncClient>,
     err: Option<String>,
+    publishes: Vec<Publish>,
+    stop_signal_tx: Option<watch::Sender<()>>,
 }
 
 impl ClientV311 {
     pub async fn new(conf: ClientConf) -> Self {
-        let mut mqtt_options = MqttOptions::new(conf.id, conf.host, conf.port);
-        mqtt_options.set_keep_alive(Duration::from_secs(conf.keep_alive));
-        let username = conf.username.unwrap_or_default();
-        let password = conf.password.unwrap_or_default();
-        mqtt_options.set_credentials(username, password);
+        Self {
+            running: false,
+            conf,
+            client: None,
+            err: None,
+            publishes: vec![],
+            stop_signal_tx: None,
+        }
+    }
 
+    pub async fn start(&mut self) {
+        let mut mqtt_options =
+            MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
+        mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
+        match (&self.conf.username, &self.conf.password) {
+            (Some(username), Some(password)) => {
+                mqtt_options.set_credentials(username.clone(), password.clone());
+            }
+            (None, Some(password)) => {
+                mqtt_options.set_credentials("", password.clone());
+            }
+            (Some(username), None) => {
+                mqtt_options.set_credentials(username.clone(), "");
+            }
+            _ => {}
+        }
+
+        let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+        self.client = Some(client);
+        self.stop_signal_tx = Some(stop_signal_tx);
         tokio::spawn(async move {
-            while let Ok(notification) = eventloop.poll().await {
-                println!("Received = {:?}", notification);
+            loop {
+                select! {
+                    _ = stop_signal_rx.changed() => {
+                        return;
+                    }
+                    Ok(event) = eventloop.poll() => {
+                        println!("Received = {:?}", event);
+                    }
+                }
             }
         });
+    }
 
-        Self { client, err: None }
+    pub async fn stop(&mut self) {
+        if let Some(stop_signal_tx) = &self.stop_signal_tx {
+            stop_signal_tx.send(()).unwrap();
+        }
     }
 
     pub fn get_status(&self) -> bool {
@@ -45,5 +91,55 @@ impl ClientV311 {
         } else {
             Ok(())
         }
+    }
+
+    pub fn create_publish(&mut self, req: PublishCreateUpdateReq) {
+        let publish = Publish::new(generate_id(), Arc::new(req));
+        if let Some(client) = &self.client {
+            publish.start(client.clone());
+        }
+        self.publishes.push(publish);
+    }
+}
+
+pub struct Publish {
+    pub id: String,
+    pub running: bool,
+    pub conf: Arc<PublishCreateUpdateReq>,
+}
+
+impl Publish {
+    pub fn new(id: String, conf: Arc<PublishCreateUpdateReq>) -> Self {
+        Self {
+            id,
+            running: false,
+            conf,
+        }
+    }
+
+    pub fn start(&self, client: AsyncClient) {
+        if self.running {
+            return;
+        }
+
+        let conf = self.conf.clone();
+        tokio::spawn(async move {
+            let qos = match conf.qos {
+                types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
+                types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
+                types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+            };
+            let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
+            loop {
+                interval.tick().await;
+                let _ = client
+                    .publish(conf.topic.clone(), qos, conf.retain, conf.payload.clone())
+                    .await;
+            }
+        });
+    }
+
+    pub fn stop(&self) {
+        todo!()
     }
 }
