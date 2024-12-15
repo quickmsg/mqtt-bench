@@ -80,6 +80,9 @@ impl Group {
             self.running = false;
         }
 
+        self.clients.write().await.iter_mut().for_each(|client| {
+            client.stop();
+        });
         self.stop_signal_tx.send(()).unwrap();
     }
 

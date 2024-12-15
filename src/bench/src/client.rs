@@ -72,7 +72,7 @@ impl ClientV311 {
         });
     }
 
-    pub async fn stop(&mut self) {
+    pub fn stop(&mut self) {
         if let Some(stop_signal_tx) = &self.stop_signal_tx {
             stop_signal_tx.send(()).unwrap();
         }
