@@ -2,20 +2,23 @@ use std::{sync::Arc, time::SystemTime};
 
 use futures::lock::BiLock;
 use tokio::{select, time};
-use types::{BrokerInfo, ClientStatus, GroupConf};
+use types::{
+    BrokerUpdateReq, ClientStatus, GroupCreateUpdateReq, PublishCreateUpdateReq,
+    SubscribeCreateUpdateReq,
+};
 
 use crate::client::{self, ClientV311};
 
 pub struct Group {
     running: bool,
-    pub conf: Arc<GroupConf>,
+    pub conf: Arc<GroupCreateUpdateReq>,
     clients: Option<BiLock<Vec<client::ClientV311>>>,
     status: Option<BiLock<Vec<ClientStatus>>>,
-    broker_info: Arc<BrokerInfo>,
+    broker_info: Arc<BrokerUpdateReq>,
 }
 
 impl Group {
-    pub fn new(broker_info: Arc<BrokerInfo>, conf: GroupConf) -> Self {
+    pub fn new(broker_info: Arc<BrokerUpdateReq>, conf: GroupCreateUpdateReq) -> Self {
         Self {
             running: false,
             conf: Arc::new(conf),
@@ -60,6 +63,46 @@ impl Group {
     pub async fn status(&self) -> Vec<ClientStatus> {
         self.status.as_ref().unwrap().lock().await.clone()
     }
+
+    pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
+        todo!()
+    }
+
+    pub async fn list_publishes(&self) {
+        todo!()
+    }
+
+    pub async fn read_publish(&self, publish_id: String) {
+        todo!()
+    }
+
+    pub async fn update_publish(&mut self, publish_id: String, req: PublishCreateUpdateReq) {
+        todo!()
+    }
+
+    pub async fn delete_publish(&mut self, publish_id: String) {
+        todo!()
+    }
+
+    pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) {
+        todo!()
+    }
+
+    pub async fn list_subscribes(&self) {
+        todo!()
+    }
+
+    pub async fn read_subscribe(&self, subscribe_id: String) {
+        todo!()
+    }
+
+    pub async fn update_subscribe(&mut self, subscribe_id: String, req: SubscribeCreateUpdateReq) {
+        todo!()
+    }
+
+    pub async fn delete_subscribe(&mut self, subscribe_id: String) {
+        todo!()
+    }
 }
 
 async fn get_status(clients: &BiLock<Vec<ClientV311>>, status: &BiLock<Vec<ClientStatus>>) {
@@ -86,7 +129,11 @@ async fn get_status(clients: &BiLock<Vec<ClientV311>>, status: &BiLock<Vec<Clien
     });
 }
 
-async fn connect(index: usize, clients: &BiLock<Vec<ClientV311>>, broker_info: &Arc<BrokerInfo>) {
+async fn connect(
+    index: usize,
+    clients: &BiLock<Vec<ClientV311>>,
+    broker_info: &Arc<BrokerUpdateReq>,
+) {
     let client_conf = client::ClientConf {
         index,
         // TODO

@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use group::Group;
 use tokio::sync::RwLock;
-use types::{BrokerInfo, GroupConf};
+use types::{BrokerUpdateReq, GroupCreateUpdateReq};
 
 mod client;
 mod group;
@@ -11,15 +11,14 @@ mod mqtt;
 static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::default());
 
 pub struct RuntimeInstance {
-    pub broker_info: RwLock<Arc<BrokerInfo>>,
-    // TODO remove dashmap
+    pub broker_info: RwLock<Arc<BrokerUpdateReq>>,
     pub groups: RwLock<Vec<Group>>,
 }
 
 impl Default for RuntimeInstance {
     fn default() -> Self {
         Self {
-            broker_info: RwLock::new(Arc::new(BrokerInfo {
+            broker_info: RwLock::new(Arc::new(BrokerUpdateReq {
                 addrs: vec![("127.0.0.1".into(), 1883)],
                 username: None,
                 password: None,
@@ -32,25 +31,29 @@ impl Default for RuntimeInstance {
     }
 }
 
-pub async fn read_broker() -> BrokerInfo {
+pub async fn read_broker() -> BrokerUpdateReq {
     let broker_info = RUNTIME_INSTANCE.broker_info.read().await.clone();
     (*broker_info).clone()
 }
 
-pub async fn update_broker(info: BrokerInfo) {
+pub async fn update_broker(info: BrokerUpdateReq) {
     *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
 }
 
-pub async fn create_group(conf: GroupConf) {
-    let group = Group::new(RUNTIME_INSTANCE.broker_info.read().await.clone(), conf);
+pub async fn create_group(req: GroupCreateUpdateReq) {
+    let group = Group::new(RUNTIME_INSTANCE.broker_info.read().await.clone(), req);
     RUNTIME_INSTANCE.groups.write().await.push(group);
 }
 
-pub async fn list_groups() -> Vec<GroupConf> {
+pub async fn list_groups() -> Vec<GroupCreateUpdateReq> {
     let groups = RUNTIME_INSTANCE.groups.read().await;
-    groups.iter().map(|g| (*g.conf).clone()).collect()
+    groups.iter().rev().map(|g| (*g.conf).clone()).collect()
 }
 
-pub async fn start_group(id: String) {
+pub async fn start_group(group_id: String) {
     RUNTIME_INSTANCE.groups.write().await[0].start().await;
+}
+
+pub async fn stop_group(group_id: String) {
+    todo!()
 }

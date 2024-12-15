@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BrokerInfo {
+pub struct BrokerUpdateReq {
     pub addrs: Vec<(String, u16)>,
     pub username: Option<String>,
     pub password: Option<String>,
@@ -12,7 +12,8 @@ pub struct BrokerInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GroupConf {
+pub struct GroupCreateUpdateReq {
+    pub name: String,
     pub client_count: usize,
 }
 
@@ -23,7 +24,14 @@ pub enum ProtocolVersion {
     V5,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublishCreateUpdateReq {
+    pub name: String,
+    pub topic: String,
+    pub qos: Qos,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Qos {
     AtMostOnce,
     AtLeastOnce,
@@ -35,4 +43,11 @@ pub struct ClientStatus {
     pub ts: u64,
     pub succeed: usize,
     pub failed: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SubscribeCreateUpdateReq {
+    pub name: String,
+    pub topic: String,
+    pub qos: Qos,
 }
