@@ -29,7 +29,7 @@ impl Default for RuntimeInstance {
                 password: None,
                 client_id: None,
                 protocol_version: types::ProtocolVersion::V311,
-                connect_rate: 1000,
+                connect_interval: 1,
             })),
             groups: RwLock::new(vec![]),
         }
@@ -81,7 +81,15 @@ pub async fn start_group(group_id: String) {
 }
 
 pub async fn stop_group(group_id: String) {
-    todo!()
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|g| g.id == group_id)
+        .unwrap()
+        .stop()
+        .await;
 }
 
 pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq) {

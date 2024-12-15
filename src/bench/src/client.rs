@@ -1,10 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use rumqttc::{AsyncClient, MqttOptions};
-use tokio::{
-    select,
-    sync::{oneshot, watch},
-};
+use tokio::{select, sync::watch};
 use types::PublishCreateUpdateReq;
 
 use crate::generate_id;
@@ -29,7 +26,7 @@ pub struct ClientV311 {
 }
 
 impl ClientV311 {
-    pub async fn new(conf: ClientConf) -> Self {
+    pub fn new(conf: ClientConf) -> Self {
         Self {
             running: false,
             conf,
@@ -40,7 +37,7 @@ impl ClientV311 {
         }
     }
 
-    pub async fn start(&mut self) {
+    pub fn start(&mut self) {
         let mut mqtt_options =
             MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
         mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
@@ -93,8 +90,8 @@ impl ClientV311 {
         }
     }
 
-    pub fn create_publish(&mut self, req: PublishCreateUpdateReq) {
-        let publish = Publish::new(generate_id(), Arc::new(req));
+    pub fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
+        let publish = Publish::new(generate_id(), req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }

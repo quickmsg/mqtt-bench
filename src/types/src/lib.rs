@@ -7,8 +7,8 @@ pub struct BrokerUpdateReq {
     pub username: Option<String>,
     pub password: Option<String>,
     pub client_id: Option<String>,
-    // 每秒的速率
-    pub connect_rate: u64,
+    // 每毫秒
+    pub connect_interval: u64,
     pub protocol_version: ProtocolVersion,
 }
 

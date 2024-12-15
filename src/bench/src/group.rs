@@ -1,71 +1,162 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::SystemTime,
+};
 
 use futures::lock::BiLock;
-use tokio::{select, time};
+use tokio::{select, sync::RwLock, time};
 use types::{
     BrokerUpdateReq, ClientStatus, GroupCreateUpdateReq, PublishCreateUpdateReq,
     SubscribeCreateUpdateReq,
 };
 
-use crate::{
-    client::{self, ClientV311},
-    generate_id,
-};
+use crate::{client, generate_id};
 
 pub struct Group {
     pub id: String,
     pub conf: Arc<GroupCreateUpdateReq>,
     running: bool,
-    clients: Option<BiLock<Vec<client::ClientV311>>>,
+
+    clients: Arc<RwLock<Vec<client::ClientV311>>>,
+    // join_handle: Option<JoinHandle<Vec<client::ClientV311>>>,
+    client_connected_count: Arc<AtomicUsize>,
+
     status: Option<BiLock<Vec<ClientStatus>>>,
     broker_info: Arc<BrokerUpdateReq>,
+    stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
     publishes: Vec<Publish>,
 }
 
 impl Group {
     pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, conf: GroupCreateUpdateReq) -> Self {
+        let mut clients = Vec::with_capacity(conf.client_count);
+        for index in 0..conf.client_count {
+            clients.push(client::ClientV311::new(client::ClientConf {
+                index,
+                id: format!("client-{}", index),
+                host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                keep_alive: 60,
+                username: None,
+                password: None,
+            }));
+        }
+        let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             id,
             conf: Arc::new(conf),
             running: false,
-            clients: None,
+            clients: Arc::new(RwLock::new(clients)),
             status: None,
             broker_info,
+            client_connected_count: Arc::new(AtomicUsize::new(0)),
             publishes: vec![],
+            stop_signal_tx,
         }
     }
 
     pub async fn start(&mut self) {
-        self.running = true;
+        if self.running {
+            return;
+        } else {
+            self.running = true;
+        }
 
-        let (clients1, clients2) = BiLock::new(Vec::with_capacity(self.conf.client_count));
         let (status1, status2) = BiLock::new(Vec::new());
+        self.start_clients();
+        self.start_collect_status(status1);
 
-        let broker_info = self.broker_info.clone();
-        let conf = self.conf.clone();
+        self.status = Some(status2);
+    }
+
+    pub async fn stop(&mut self) {
+        if !self.running {
+            return;
+        } else {
+            self.running = false;
+        }
+
+        self.stop_signal_tx.send(()).unwrap();
+    }
+
+    fn start_collect_status(&mut self, status: BiLock<Vec<ClientStatus>>) {
+        let mut stop_signal_rx = self.stop_signal_tx.subscribe();
+        let mut status_interval = time::interval(time::Duration::from_secs(1));
+        let clients = self.clients.clone();
         tokio::spawn(async move {
-            let mut status_interval = time::interval(time::Duration::from_secs(1));
-            let mut connect_interval =
-                time::interval(time::Duration::from_millis(1000 / broker_info.connect_rate));
+            loop {
+                select! {
+                    _ = stop_signal_rx.recv() => {
+                        break;
+                    }
+
+                    _ = status_interval.tick() => {
+                        Self::get_status(&clients, &status).await;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn get_status(
+        clients: &Arc<RwLock<Vec<client::ClientV311>>>,
+        status: &BiLock<Vec<ClientStatus>>,
+    ) {
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut succeed = 0;
+        let mut failed = 0;
+        {
+            let clients_guard = clients.read().await;
+            clients_guard.iter().for_each(|client| {
+                if client.get_status() {
+                    succeed += 1;
+                } else {
+                    failed += 1;
+                }
+            });
+        }
+        status.lock().await.push(ClientStatus {
+            ts,
+            succeed,
+            failed,
+        });
+    }
+
+    fn start_clients(&mut self) {
+        let clients = self.clients.clone();
+        let mut connect_interval = time::interval(time::Duration::from_millis(
+            self.broker_info.connect_interval,
+        ));
+        let client_connected_count = self.client_connected_count.clone();
+        let client_count = self.conf.client_count;
+        let mut stop_signal_rx = self.stop_signal_tx.subscribe();
+        tokio::spawn(async move {
             let mut index = 0;
             loop {
                 select! {
-                    _ = status_interval.tick() => {
-                        get_status(&clients1, &status1).await;
+                    _ = stop_signal_rx.recv() => {
+                        break;
                     }
+
                     _ = connect_interval.tick() => {
-                        if index < conf.client_count {
-                            connect(index, &clients1, &broker_info).await;
+                        if index < client_count {
+                            clients.write().await[index].start();
                             index += 1;
+                            client_connected_count.store(index, Ordering::Relaxed);
+                        } else {
+                            break;
                         }
                     }
                 }
             }
         });
-
-        self.clients = Some(clients2);
-        self.status = Some(status2);
     }
 
     pub async fn status(&self) -> Vec<ClientStatus> {
@@ -73,11 +164,11 @@ impl Group {
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
+        let req = Arc::new(req);
         if self.running {
-            let mut clients_guard = self.clients.as_ref().unwrap().lock().await;
-            clients_guard
-                .iter_mut()
-                .for_each(|client| client.create_publish(req.clone()));
+            self.clients.write().await.iter_mut().for_each(|client| {
+                client.create_publish(req.clone());
+            });
         }
 
         self.publishes.push(Publish {
@@ -123,52 +214,9 @@ impl Group {
     }
 }
 
-async fn get_status(clients: &BiLock<Vec<ClientV311>>, status: &BiLock<Vec<ClientStatus>>) {
-    let ts = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let mut succeed = 0;
-    let mut failed = 0;
-    {
-        let clients_guard = clients.lock().await;
-        clients_guard.iter().for_each(|client| {
-            if client.get_status() {
-                succeed += 1;
-            } else {
-                failed += 1;
-            }
-        });
-    }
-    status.lock().await.push(ClientStatus {
-        ts,
-        succeed,
-        failed,
-    });
-}
-
-async fn connect(
-    index: usize,
-    clients: &BiLock<Vec<ClientV311>>,
-    broker_info: &Arc<BrokerUpdateReq>,
-) {
-    let client_conf = client::ClientConf {
-        index,
-        // TODO
-        id: format!("client-{}", index),
-        host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-        port: broker_info.addrs[index % broker_info.addrs.len()].1,
-        keep_alive: 60,
-        username: broker_info.username.clone(),
-        password: broker_info.password.clone(),
-    };
-    let client = client::ClientV311::new(client_conf).await;
-    clients.lock().await.push(client);
-}
-
 pub struct Publish {
     id: String,
-    conf: PublishCreateUpdateReq,
+    conf: Arc<PublishCreateUpdateReq>,
 }
 
 pub struct Subscribe {}
