@@ -9,8 +9,8 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, ClientStatus, GroupCreateUpdateReq, GroupStatus, PublishCreateUpdateReq,
-    ReadGroupResp, Status, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, GroupCreateUpdateReq, GroupStatus, PublishCreateUpdateReq, ReadGroupResp,
+    Status, SubscribeCreateUpdateReq,
 };
 
 use crate::{client, generate_id};
@@ -28,6 +28,7 @@ pub struct Group {
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
     publishes: Vec<Publish>,
+    subscribes: Vec<Subscribe>,
 }
 
 impl Group {
@@ -53,8 +54,9 @@ impl Group {
             status: None,
             broker_info,
             client_connected_count: Arc::new(AtomicUsize::new(0)),
-            publishes: vec![],
             stop_signal_tx,
+            publishes: vec![],
+            subscribes: vec![],
         }
     }
 
@@ -161,7 +163,7 @@ impl Group {
 
                     _ = connect_interval.tick() => {
                         if index < client_count {
-                            clients.write().await[index].start();
+                            clients.write().await[index].start().await;
                             index += 1;
                             client_connected_count.store(index, Ordering::Relaxed);
                         } else {
@@ -183,11 +185,9 @@ impl Group {
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
         let req = Arc::new(req);
-        if self.running {
-            self.clients.write().await.iter_mut().for_each(|client| {
-                client.create_publish(req.clone());
-            });
-        }
+        self.clients.write().await.iter_mut().for_each(|client| {
+            client.create_publish(req.clone());
+        });
 
         self.publishes.push(Publish {
             id: generate_id(),
@@ -212,7 +212,15 @@ impl Group {
     }
 
     pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) {
-        todo!()
+        let req = Arc::new(req);
+        for client in self.clients.write().await.iter_mut() {
+            client.create_subscribe(req.clone()).await;
+        }
+
+        self.subscribes.push(Subscribe {
+            id: generate_id(),
+            conf: req,
+        });
     }
 
     pub async fn list_subscribes(&self) {
@@ -237,4 +245,7 @@ pub struct Publish {
     conf: Arc<PublishCreateUpdateReq>,
 }
 
-pub struct Subscribe {}
+pub struct Subscribe {
+    id: String,
+    conf: Arc<SubscribeCreateUpdateReq>,
+}

@@ -4,6 +4,7 @@ use group::Group;
 use tokio::sync::RwLock;
 use types::{
     BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ReadGroupResp,
+    SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -115,6 +116,18 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .find(|group| group.id == group_id)
         .unwrap()
         .create_publish(req)
+        .await;
+}
+
+pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .create_subscribe(req)
         .await;
 }
 

@@ -5,7 +5,7 @@ use std::{
 
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
-use types::PublishCreateUpdateReq;
+use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::{generate_id, Status};
 
@@ -25,6 +25,7 @@ pub struct ClientV311 {
     client: Option<AsyncClient>,
     err: Option<String>,
     publishes: Vec<Publish>,
+    subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
     status: Arc<Status>,
 }
@@ -37,12 +38,13 @@ impl ClientV311 {
             client: None,
             err: None,
             publishes: vec![],
+            subscribes: vec![],
             stop_signal_tx: None,
             status: Arc::new(Status::default()),
         }
     }
 
-    pub fn start(&mut self) {
+    pub async fn start(&mut self) {
         if self.running {
             return;
         } else {
@@ -83,6 +85,14 @@ impl ClientV311 {
                 }
             }
         });
+
+        for publish in self.publishes.iter() {
+            publish.start(self.client.clone().unwrap());
+        }
+
+        for subscribe in self.subscribes.iter() {
+            subscribe.start(self.client.as_ref().unwrap()).await;
+        }
     }
 
     fn handle_event(status: &Arc<Status>, event: Result<Event, ConnectionError>) {
@@ -187,6 +197,14 @@ impl ClientV311 {
         }
         self.publishes.push(publish);
     }
+
+    pub async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
+        let subscribe = Subscribe::new(generate_id(), req);
+        if let Some(client) = &self.client {
+            subscribe.start(&client).await;
+        }
+        self.subscribes.push(subscribe);
+    }
 }
 
 pub struct Publish {
@@ -231,6 +249,29 @@ impl Publish {
     }
 }
 
+pub struct Subscribe {
+    pub id: String,
+    pub conf: Arc<SubscribeCreateUpdateReq>,
+}
+
+impl Subscribe {
+    pub fn new(id: String, conf: Arc<SubscribeCreateUpdateReq>) -> Self {
+        Self { id, conf }
+    }
+
+    pub async fn start(&self, client: &AsyncClient) {
+        let qos = match self.conf.qos {
+            types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
+            types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
+            types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+        };
+        client.subscribe(&self.conf.topic, qos).await.unwrap();
+    }
+
+    pub async fn stop(&self, client: &AsyncClient) {
+        client.unsubscribe(&self.conf.topic).await.unwrap();
+    }
+}
 pub struct ClientStatus {
     pub success: bool,
     pub conn_ack: usize,

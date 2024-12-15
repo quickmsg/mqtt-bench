@@ -99,7 +99,6 @@ async fn stop_group(Path(group_id): Path<String>) {
 }
 
 async fn create_publish(Path(group_id): Path<String>, Json(req): Json<PublishCreateUpdateReq>) {
-    println!("{}", group_id);
     bench::create_publish(group_id, req).await;
 }
 
@@ -116,6 +115,7 @@ async fn update_publish(
 async fn delete_publish(Path((group_id, publish_id)): Path<(String, String)>) {}
 
 async fn create_subscribe(Path(group_id): Path<String>, Json(req): Json<SubscribeCreateUpdateReq>) {
+    bench::create_subscribe(group_id, req).await;
 }
 
 async fn list_subscribes(Path(group_id): Path<String>) {}
