@@ -1,27 +1,21 @@
-use std::sync::Arc;
-
 use axum::{
-    extract::State,
+    extract::Path,
     routing::{get, post, put},
     Json, Router,
 };
-use bench::ClientManager;
-use tokio::{net::TcpListener, sync::RwLock};
-use types::{ClientStatus, TaskCreateReq};
+use tokio::net::TcpListener;
+use types::{BrokerInfo, GroupConf};
 
-struct AppState {
-    pub client_manager: RwLock<Option<ClientManager>>,
-}
 pub async fn run() {
-    let shared_state = Arc::new(AppState {
-        client_manager: RwLock::new(None),
-    });
-
     let app = Router::new()
-        .route("/", post(create))
-        .route("/start", put(start))
-        .route("/status", get(status))
-        .with_state(shared_state.clone());
+        .route("/broker", get(read_broker).put(update_broker))
+        .route("/group", post(create_group).get(list_groups))
+        .route(
+            "/group/:id",
+            get(read_group).put(update_group).delete(delete_group),
+        )
+        .route("/group/:id/start", put(start_group))
+        .route("/group/:id/stop", put(stop_group));
 
     let listener = TcpListener::bind(format!("0.0.0.0:{}", 5000))
         .await
@@ -29,22 +23,31 @@ pub async fn run() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn create(State(state): State<Arc<AppState>>, Json(req): Json<TaskCreateReq>) {
-    let client_manager = ClientManager::new(req.mqtt_server_info, req.connect_bench_info);
-    state.client_manager.write().await.replace(client_manager);
+#[axum::debug_handler]
+async fn read_broker() -> Json<BrokerInfo> {
+    Json(bench::read_broker().await)
 }
 
-async fn update(State(state): State<Arc<AppState>>) {}
-
-async fn start(State(state): State<Arc<AppState>>) {
-    let mut client_manager_guard = state.client_manager.write().await;
-    client_manager_guard.as_mut().unwrap().start().await;
+async fn update_broker(Json(broker_info): Json<BrokerInfo>) {
+    bench::update_broker(broker_info).await;
 }
 
-async fn status(State(state): State<Arc<AppState>>) -> Json<Vec<ClientStatus>> {
-    let client_manager_guard = state.client_manager.read().await;
-    let status = client_manager_guard.as_ref().unwrap().status().await;
-    Json(status)
+async fn create_group(Json(group_conf): Json<GroupConf>) {
+    bench::create_group(group_conf).await;
 }
 
-async fn stop(State(state): State<Arc<AppState>>) {}
+async fn list_groups() -> Json<Vec<GroupConf>> {
+    Json(bench::list_groups().await)
+}
+
+async fn read_group() {}
+
+async fn update_group() {}
+
+async fn delete_group() {}
+
+async fn start_group(Path(id): Path<String>) {
+    bench::start_group(id).await;
+}
+
+async fn stop_group() {}

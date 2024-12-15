@@ -1,44 +1,26 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct TaskCreateReq {
-    pub mqtt_server_info: MqttServerInfo,
-    pub connect_bench_info: ConnectBenchInfo,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MqttServerInfo {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BrokerInfo {
     pub addrs: Vec<(String, u16)>,
     pub username: Option<String>,
     pub password: Option<String>,
     pub client_id: Option<String>,
-    pub mqtt_protocol_version: MqttProtocolVersion,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ConnectBenchInfo {
-    pub client_count: usize,
     // 每秒的速率
-    pub rate: u64,
+    pub connect_rate: u64,
+    pub protocol_version: ProtocolVersion,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PubInfo {
-    pub topic: String,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GroupConf {
+    pub client_count: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
-pub enum MqttProtocolVersion {
+pub enum ProtocolVersion {
     V311,
     V5,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum BenchType {
-    Conn,
-    Pub,
-    Sub,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

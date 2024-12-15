@@ -9,3 +9,5 @@ types = { workspace = true }
 rumqttc = "0.24.0"
 tokio = { workspace = true }
 futures = { version = "0.3.31", features = ["unstable", "bilock"] }
+dashmap = "6.1.0"
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
