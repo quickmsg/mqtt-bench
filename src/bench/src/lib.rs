@@ -1,8 +1,10 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::{atomic::AtomicUsize, Arc, LazyLock};
 
 use group::Group;
 use tokio::sync::RwLock;
-use types::{BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem};
+use types::{
+    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ReadGroupResp,
+};
 use uuid::Uuid;
 
 mod client;
@@ -68,6 +70,18 @@ pub async fn list_groups() -> ListGroupResp {
     ListGroupResp { list }
 }
 
+pub async fn read_group(group_id: String) -> ReadGroupResp {
+    RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .read()
+        .await
+}
+
 pub async fn start_group(group_id: String) {
     RUNTIME_INSTANCE
         .groups
@@ -102,4 +116,27 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .unwrap()
         .create_publish(req)
         .await;
+}
+
+#[derive(Default)]
+pub struct Status {
+    // 连接确认
+    pub conn_ack: AtomicUsize,
+    // 发布确认
+    pub pub_ack: AtomicUsize,
+    // 取消订阅确认
+    pub unsub_ack: AtomicUsize,
+    // ping请求
+    pub ping_req: AtomicUsize,
+    // ping响应
+    pub ping_resp: AtomicUsize,
+    // 发布
+    pub publish: AtomicUsize,
+
+    // 订阅
+    pub subscribe: AtomicUsize,
+    // 取消订阅
+    pub unsubscribe: AtomicUsize,
+    // 连接断开
+    pub disconnect: AtomicUsize,
 }

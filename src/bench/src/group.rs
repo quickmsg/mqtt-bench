@@ -9,8 +9,8 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, ClientStatus, GroupCreateUpdateReq, PublishCreateUpdateReq,
-    SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientStatus, GroupCreateUpdateReq, GroupStatus, PublishCreateUpdateReq,
+    ReadGroupResp, Status, SubscribeCreateUpdateReq,
 };
 
 use crate::{client, generate_id};
@@ -21,10 +21,9 @@ pub struct Group {
     running: bool,
 
     clients: Arc<RwLock<Vec<client::ClientV311>>>,
-    // join_handle: Option<JoinHandle<Vec<client::ClientV311>>>,
     client_connected_count: Arc<AtomicUsize>,
 
-    status: Option<BiLock<Vec<ClientStatus>>>,
+    status: Option<BiLock<Vec<GroupStatus>>>,
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
@@ -86,7 +85,7 @@ impl Group {
         self.stop_signal_tx.send(()).unwrap();
     }
 
-    fn start_collect_status(&mut self, status: BiLock<Vec<ClientStatus>>) {
+    fn start_collect_status(&mut self, status: BiLock<Vec<GroupStatus>>) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(1));
         let clients = self.clients.clone();
@@ -98,16 +97,16 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::get_status(&clients, &status).await;
+                        Self::collect_status(&clients, &status).await;
                     }
                 }
             }
         });
     }
 
-    async fn get_status(
+    async fn collect_status(
         clients: &Arc<RwLock<Vec<client::ClientV311>>>,
-        status: &BiLock<Vec<ClientStatus>>,
+        group_status: &BiLock<Vec<GroupStatus>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -115,20 +114,32 @@ impl Group {
             .as_secs();
         let mut succeed = 0;
         let mut failed = 0;
+        let mut status = Status::default();
         {
             let clients_guard = clients.read().await;
             clients_guard.iter().for_each(|client| {
-                if client.get_status() {
+                let client_status = client.get_status();
+                if client_status.success {
                     succeed += 1;
                 } else {
                     failed += 1;
                 }
+                status.conn_ack += client_status.conn_ack;
+                status.pub_ack += client_status.pub_ack;
+                status.unsub_ack += client_status.unsub_ack;
+                status.ping_req += client_status.ping_req;
+                status.ping_resp += client_status.ping_resp;
+                status.publish += client_status.publish;
+                status.subscribe += client_status.subscribe;
+                status.unsubscribe += client_status.unsubscribe;
+                status.disconnect += client_status.disconnect;
             });
         }
-        status.lock().await.push(ClientStatus {
+        group_status.lock().await.push(GroupStatus {
             ts,
             succeed,
             failed,
+            status,
         });
     }
 
@@ -162,8 +173,12 @@ impl Group {
         });
     }
 
-    pub async fn status(&self) -> Vec<ClientStatus> {
-        self.status.as_ref().unwrap().lock().await.clone()
+    pub async fn read(&self) -> ReadGroupResp {
+        ReadGroupResp {
+            id: self.id.clone(),
+            conf: (*self.conf).clone(),
+            status: self.status.as_ref().unwrap().lock().await.clone(),
+        }
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {

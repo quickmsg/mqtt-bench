@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicUsize;
+
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -31,6 +33,13 @@ pub struct ListGroupRespItem {
     pub client_count: usize,
 }
 
+#[derive(Serialize)]
+pub struct ReadGroupResp {
+    pub id: String,
+    pub conf: GroupCreateUpdateReq,
+    pub status: Vec<GroupStatus>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolVersion {
@@ -62,6 +71,15 @@ pub struct ClientStatus {
     pub ts: u64,
     pub succeed: usize,
     pub failed: usize,
+    pub status: Status,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GroupStatus {
+    pub ts: u64,
+    pub succeed: usize,
+    pub failed: usize,
+    pub status: Status,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -69,4 +87,26 @@ pub struct SubscribeCreateUpdateReq {
     pub name: String,
     pub topic: String,
     pub qos: Qos,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Status {
+    // 连接确认
+    pub conn_ack: usize,
+    // 发布确认
+    pub pub_ack: usize,
+    // 取消订阅确认
+    pub unsub_ack: usize,
+    // ping请求
+    pub ping_req: usize,
+    // ping响应
+    pub ping_resp: usize,
+    // 发布
+    pub publish: usize,
+    // 订阅
+    pub subscribe: usize,
+    // 取消订阅
+    pub unsubscribe: usize,
+    // 连接断开
+    pub disconnect: usize,
 }

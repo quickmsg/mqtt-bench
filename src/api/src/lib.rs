@@ -5,7 +5,7 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, PublishCreateUpdateReq,
+    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, PublishCreateUpdateReq, ReadGroupResp,
     SubscribeCreateUpdateReq,
 };
 
@@ -82,7 +82,9 @@ async fn list_groups() -> Json<ListGroupResp> {
     Json(bench::list_groups().await)
 }
 
-async fn read_group() {}
+async fn read_group(Path(group_id): Path<String>) -> Json<ReadGroupResp> {
+    Json(bench::read_group(group_id).await)
+}
 
 async fn update_group() {}
 
