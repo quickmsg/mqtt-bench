@@ -3,23 +3,16 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::{generate_id, Status};
 
-pub struct ClientConf {
-    pub index: usize,
-    pub id: String,
-    pub host: String,
-    pub port: u16,
-    pub keep_alive: u64,
-    pub username: Option<String>,
-    pub password: Option<String>,
-}
+use super::{Client, ClientConf, ClientStatus};
 
-pub struct ClientV311 {
+pub struct MqttClientV311 {
     running: bool,
     conf: ClientConf,
     client: Option<AsyncClient>,
@@ -30,70 +23,21 @@ pub struct ClientV311 {
     status: Arc<Status>,
 }
 
-impl ClientV311 {
-    pub fn new(conf: ClientConf) -> Self {
-        Self {
-            running: false,
-            conf,
-            client: None,
-            err: None,
-            publishes: vec![],
-            subscribes: vec![],
-            stop_signal_tx: None,
-            status: Arc::new(Status::default()),
-        }
-    }
+pub fn new(conf: ClientConf) -> Box<dyn Client> {
+    Box::new(MqttClientV311 {
+        running: false,
+        conf,
+        client: None,
+        err: None,
+        publishes: vec![],
+        subscribes: vec![],
+        stop_signal_tx: None,
+        status: Arc::new(Status::default()),
+    })
+}
 
-    pub async fn start(&mut self) {
-        if self.running {
-            return;
-        } else {
-            self.running = true;
-        }
-
-        let mut mqtt_options =
-            MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
-        mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
-        match (&self.conf.username, &self.conf.password) {
-            (Some(username), Some(password)) => {
-                mqtt_options.set_credentials(username.clone(), password.clone());
-            }
-            (None, Some(password)) => {
-                mqtt_options.set_credentials("", password.clone());
-            }
-            (Some(username), None) => {
-                mqtt_options.set_credentials(username.clone(), "");
-            }
-            _ => {}
-        }
-
-        let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
-        self.client = Some(client);
-        self.stop_signal_tx = Some(stop_signal_tx);
-        let status = self.status.clone();
-        tokio::spawn(async move {
-            loop {
-                select! {
-                    _ = stop_signal_rx.changed() => {
-                        return;
-                    }
-
-                    event = eventloop.poll() => {
-                        Self::handle_event(&status, event);
-                    }
-                }
-            }
-        });
-
-        for publish in self.publishes.iter() {
-            publish.start(self.client.clone().unwrap());
-        }
-
-        for subscribe in self.subscribes.iter() {
-            subscribe.start(self.client.as_ref().unwrap()).await;
-        }
-    }
+impl MqttClientV311 {
+    pub async fn start(&mut self) {}
 
     fn handle_event(status: &Arc<Status>, event: Result<Event, ConnectionError>) {
         match event {
@@ -150,17 +94,6 @@ impl ClientV311 {
         }
     }
 
-    pub fn stop(&mut self) {
-        if !self.running {
-            return;
-        } else {
-            self.running = false;
-        }
-        if let Some(stop_signal_tx) = &self.stop_signal_tx {
-            stop_signal_tx.send(()).unwrap();
-        }
-    }
-
     pub fn running(&self) -> bool {
         self.err.is_none()
     }
@@ -189,8 +122,77 @@ impl ClientV311 {
             Ok(())
         }
     }
+}
 
-    pub fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
+#[async_trait]
+impl Client for MqttClientV311 {
+    async fn start(&mut self) {
+        if self.running {
+            return;
+        } else {
+            self.running = true;
+        }
+
+        let mut mqtt_options =
+            MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
+        mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
+        match (&self.conf.username, &self.conf.password) {
+            (Some(username), Some(password)) => {
+                mqtt_options.set_credentials(username.clone(), password.clone());
+            }
+            (None, Some(password)) => {
+                mqtt_options.set_credentials("", password.clone());
+            }
+            (Some(username), None) => {
+                mqtt_options.set_credentials(username.clone(), "");
+            }
+            _ => {}
+        }
+
+        let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
+        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+        self.client = Some(client);
+        self.stop_signal_tx = Some(stop_signal_tx);
+        let status = self.status.clone();
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    _ = stop_signal_rx.changed() => {
+                        return;
+                    }
+
+                    event = eventloop.poll() => {
+                        Self::handle_event(&status, event);
+                    }
+                }
+            }
+        });
+
+        for publish in self.publishes.iter() {
+            publish.start(self.client.clone().unwrap());
+        }
+
+        for subscribe in self.subscribes.iter() {
+            subscribe.start(self.client.as_ref().unwrap()).await;
+        }
+    }
+
+    fn stop(&mut self) {
+        if !self.running {
+            return;
+        } else {
+            self.running = false;
+        }
+        if let Some(stop_signal_tx) = &self.stop_signal_tx {
+            stop_signal_tx.send(()).unwrap();
+        }
+    }
+
+    fn get_status(&self) -> ClientStatus {
+        todo!()
+    }
+
+    fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
         let publish = Publish::new(generate_id(), req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
@@ -198,7 +200,7 @@ impl ClientV311 {
         self.publishes.push(publish);
     }
 
-    pub async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
+    async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
         let subscribe = Subscribe::new(generate_id(), req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
@@ -206,7 +208,6 @@ impl ClientV311 {
         self.subscribes.push(subscribe);
     }
 }
-
 pub struct Publish {
     pub id: String,
     pub running: bool,
@@ -271,16 +272,4 @@ impl Subscribe {
     pub async fn stop(&self, client: &AsyncClient) {
         client.unsubscribe(&self.conf.topic).await.unwrap();
     }
-}
-pub struct ClientStatus {
-    pub success: bool,
-    pub conn_ack: usize,
-    pub pub_ack: usize,
-    pub unsub_ack: usize,
-    pub ping_req: usize,
-    pub ping_resp: usize,
-    pub publish: usize,
-    pub subscribe: usize,
-    pub unsubscribe: usize,
-    pub disconnect: usize,
 }

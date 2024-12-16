@@ -13,14 +13,17 @@ use types::{
     Status, SubscribeCreateUpdateReq,
 };
 
-use crate::{client, generate_id};
+use crate::{
+    client::{self, Client},
+    generate_id,
+};
 
 pub struct Group {
     pub id: String,
     pub conf: Arc<GroupCreateUpdateReq>,
     running: bool,
 
-    clients: Arc<RwLock<Vec<client::ClientV311>>>,
+    clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
     client_connected_count: Arc<AtomicUsize>,
 
     status: Option<BiLock<Vec<GroupStatus>>>,
@@ -32,23 +35,89 @@ pub struct Group {
 }
 
 impl Group {
-    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, conf: GroupCreateUpdateReq) -> Self {
-        let mut clients = Vec::with_capacity(conf.client_count);
-        for index in 0..conf.client_count {
-            clients.push(client::ClientV311::new(client::ClientConf {
-                index,
-                id: format!("client-{}", index),
-                host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                port: broker_info.addrs[index % broker_info.addrs.len()].1,
-                keep_alive: 60,
-                username: None,
-                password: None,
-            }));
+    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateUpdateReq) -> Self {
+        let mut clients = Vec::with_capacity(req.client_count);
+        match req.protocol {
+            types::Protocol::Mqtt => match req.protocol_version {
+                types::ProtocolVersion::V311 => {
+                    for index in 0..req.client_count {
+                        let client_conf = client::ClientConf {
+                            index,
+                            id: format!("client-{}", index),
+                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            keep_alive: 60,
+                            username: None,
+                            password: None,
+                        };
+                        clients.push(client::mqtt_v311::new(client_conf));
+                    }
+                }
+                types::ProtocolVersion::V5 => {
+                    for index in 0..req.client_count {
+                        let client_conf = client::ClientConf {
+                            index,
+                            id: format!("client-{}", index),
+                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            keep_alive: 60,
+                            username: None,
+                            password: None,
+                        };
+                        clients.push(client::mqtt_v50::new(client_conf));
+                    }
+                }
+            },
+            types::Protocol::Websocket => match req.protocol_version {
+                types::ProtocolVersion::V311 => {
+                    for index in 0..req.client_count {
+                        let client_conf = client::ClientConf {
+                            index,
+                            id: format!("client-{}", index),
+                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            keep_alive: 60,
+                            username: None,
+                            password: None,
+                        };
+                        clients.push(client::websocket_v311::new(client_conf));
+                    }
+                }
+                types::ProtocolVersion::V5 => {
+                    for index in 0..req.client_count {
+                        let client_conf = client::ClientConf {
+                            index,
+                            id: format!("client-{}", index),
+                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            keep_alive: 60,
+                            username: None,
+                            password: None,
+                        };
+                        clients.push(client::websocket_v50::new(client_conf));
+                    }
+                }
+            },
+            types::Protocol::Http => {
+                for index in 0..req.client_count {
+                    let client_conf = client::ClientConf {
+                        index,
+                        id: format!("client-{}", index),
+                        host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
+                        port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                        keep_alive: 60,
+                        username: None,
+                        password: None,
+                    };
+                    clients.push(client::http::new(client_conf));
+                }
+            }
         }
+
         let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             id,
-            conf: Arc::new(conf),
+            conf: Arc::new(req),
             running: false,
             clients: Arc::new(RwLock::new(clients)),
             status: None,
@@ -107,7 +176,7 @@ impl Group {
     }
 
     async fn collect_status(
-        clients: &Arc<RwLock<Vec<client::ClientV311>>>,
+        clients: &Arc<RwLock<Vec<Box<dyn Client>>>>,
         group_status: &BiLock<Vec<GroupStatus>>,
     ) {
         let ts = SystemTime::now()

@@ -1,5 +1,3 @@
-use std::sync::atomic::AtomicUsize;
-
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -16,8 +14,25 @@ pub struct BrokerUpdateReq {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GroupCreateUpdateReq {
+    pub protocol_version: ProtocolVersion,
+    pub protocol: Protocol,
     pub name: String,
     pub client_count: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum ProtocolVersion {
+    V311,
+    V5,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Protocol {
+    Mqtt,
+    Websocket,
+    Http,
 }
 
 #[derive(Serialize)]
@@ -41,13 +56,6 @@ pub struct ReadGroupResp {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum ProtocolVersion {
-    V311,
-    V5,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublishCreateUpdateReq {
     pub name: String,
     pub topic: String,
@@ -56,6 +64,17 @@ pub struct PublishCreateUpdateReq {
     // 毫秒
     pub interval: u64,
     pub payload: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ListPublishResp {
+    pub list: Vec<ListPublishRespItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ListPublishRespItem {
+    pub id: String,
+    pub conf: PublishCreateUpdateReq,
 }
 
 #[derive(Deserialize_repr, Serialize_repr, Debug, Clone)]

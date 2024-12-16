@@ -11,3 +11,4 @@ tokio = { workspace = true }
 futures = { version = "0.3.31", features = ["unstable", "bilock"] }
 dashmap = "6.1.0"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
+async-trait = "0.1.83"
