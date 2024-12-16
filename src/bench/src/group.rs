@@ -44,8 +44,8 @@ impl Group {
                         let client_conf = client::ClientConf {
                             index,
                             id: format!("client-{}", index),
-                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                            port: req.port,
                             keep_alive: 60,
                             username: None,
                             password: None,
@@ -53,13 +53,13 @@ impl Group {
                         clients.push(client::mqtt_v311::new(client_conf));
                     }
                 }
-                types::ProtocolVersion::V5 => {
+                types::ProtocolVersion::V50 => {
                     for index in 0..req.client_count {
                         let client_conf = client::ClientConf {
                             index,
                             id: format!("client-{}", index),
-                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                            port: req.port,
                             keep_alive: 60,
                             username: None,
                             password: None,
@@ -74,8 +74,8 @@ impl Group {
                         let client_conf = client::ClientConf {
                             index,
                             id: format!("client-{}", index),
-                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                            port: req.port,
                             keep_alive: 60,
                             username: None,
                             password: None,
@@ -83,13 +83,13 @@ impl Group {
                         clients.push(client::websocket_v311::new(client_conf));
                     }
                 }
-                types::ProtocolVersion::V5 => {
+                types::ProtocolVersion::V50 => {
                     for index in 0..req.client_count {
                         let client_conf = client::ClientConf {
                             index,
                             id: format!("client-{}", index),
-                            host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                            port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                            port: req.port,
                             keep_alive: 60,
                             username: None,
                             password: None,
@@ -103,8 +103,8 @@ impl Group {
                     let client_conf = client::ClientConf {
                         index,
                         id: format!("client-{}", index),
-                        host: broker_info.addrs[index % broker_info.addrs.len()].0.clone(),
-                        port: broker_info.addrs[index % broker_info.addrs.len()].1,
+                        host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                        port: req.port,
                         keep_alive: 60,
                         username: None,
                         password: None,
@@ -151,9 +151,10 @@ impl Group {
             self.running = false;
         }
 
-        self.clients.write().await.iter_mut().for_each(|client| {
-            client.stop();
-        });
+        for client in self.clients.write().await.iter_mut() {
+            client.stop().await;
+        }
+
         self.stop_signal_tx.send(()).unwrap();
     }
 

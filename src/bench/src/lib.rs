@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 mod client;
 mod group;
-mod mqtt;
 
 static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::default());
 
@@ -27,11 +26,10 @@ impl Default for RuntimeInstance {
     fn default() -> Self {
         Self {
             broker_info: RwLock::new(Arc::new(BrokerUpdateReq {
-                addrs: vec![("127.0.0.1".into(), 1883)],
+                hosts: vec!["127.0.0.1".into()],
                 username: None,
                 password: None,
                 client_id: None,
-                protocol_version: types::ProtocolVersion::V311,
                 connect_interval: 1,
             })),
             groups: RwLock::new(vec![]),
@@ -64,8 +62,7 @@ pub async fn list_groups() -> ListGroupResp {
         .rev()
         .map(|group| ListGroupRespItem {
             id: group.id.clone(),
-            name: group.conf.name.clone(),
-            client_count: group.conf.client_count,
+            conf: (*group.conf).clone(),
         })
         .collect();
     ListGroupResp { list }
@@ -165,11 +162,11 @@ impl Status {
                     self.pub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Packet::PubRec(pub_rec) => todo!(),
-                rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                rumqttc::Packet::SubAck(sub_ack) => todo!(),
+                // rumqttc::Packet::PubRec(pub_rec) => todo!(),
+                // rumqttc::Packet::PubRel(pub_rel) => todo!(),
+                // rumqttc::Packet::PubComp(pub_comp) => todo!(),
+                // rumqttc::Packet::Subscribe(subscribe) => todo!(),
+                // rumqttc::Packet::SubAck(sub_ack) => todo!(),
                 rumqttc::Packet::UnsubAck(_) => {
                     self.unsub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -219,22 +216,22 @@ impl Status {
                     self.conn_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::v5::mqttbytes::v5::Packet::PubAck(pub_ack) => {
+                rumqttc::v5::mqttbytes::v5::Packet::PubAck(_) => {
                     self.pub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::v5::mqttbytes::v5::Packet::PingReq(ping_req) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::PingResp(ping_resp) => {
+                // rumqttc::v5::mqttbytes::v5::Packet::PingReq(ping_req) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::PingResp(_) => {
                     self.ping_resp
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::v5::mqttbytes::v5::Packet::Subscribe(subscribe) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::SubAck(sub_ack) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::PubRec(pub_rec) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::PubRel(pub_rel) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::PubComp(pub_comp) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::Unsubscribe(unsubscribe) => todo!(),
-                rumqttc::v5::mqttbytes::v5::Packet::UnsubAck(unsub_ack) => {
+                // rumqttc::v5::mqttbytes::v5::Packet::Subscribe(subscribe) => todo!(),
+                // rumqttc::v5::mqttbytes::v5::Packet::SubAck(sub_ack) => todo!(),
+                // rumqttc::v5::mqttbytes::v5::Packet::PubRec(pub_rec) => todo!(),
+                // rumqttc::v5::mqttbytes::v5::Packet::PubRel(pub_rel) => todo!(),
+                // rumqttc::v5::mqttbytes::v5::Packet::PubComp(pub_comp) => todo!(),
+                // rumqttc::v5::mqttbytes::v5::Packet::Unsubscribe(unsubscribe) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::UnsubAck(_) => {
                     self.unsub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }

@@ -3,20 +3,20 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerUpdateReq {
-    pub addrs: Vec<(String, u16)>,
+    pub hosts: Vec<String>,
     pub username: Option<String>,
     pub password: Option<String>,
     pub client_id: Option<String>,
     // 每毫秒
     pub connect_interval: u64,
-    pub protocol_version: ProtocolVersion,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GroupCreateUpdateReq {
+    pub name: String,
     pub protocol_version: ProtocolVersion,
     pub protocol: Protocol,
-    pub name: String,
+    pub port: u16,
     pub client_count: usize,
 }
 
@@ -24,7 +24,7 @@ pub struct GroupCreateUpdateReq {
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolVersion {
     V311,
-    V5,
+    V50,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -44,8 +44,12 @@ pub struct ListGroupResp {
 #[derive(Serialize)]
 pub struct ListGroupRespItem {
     pub id: String,
-    pub name: String,
-    pub client_count: usize,
+    pub conf: GroupCreateUpdateReq,
+    // pub name: String,
+    // pub protocol_version: ProtocolVersion,
+    // pub protocol: Protocol,
+    // pub port: u16,
+    // pub client_count: usize,
 }
 
 #[derive(Serialize)]
