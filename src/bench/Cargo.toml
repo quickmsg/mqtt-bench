@@ -12,3 +12,6 @@ futures = { version = "0.3.31", features = ["unstable", "bilock"] }
 dashmap = "6.1.0"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 async-trait = "0.1.83"
+rustls-pemfile = "2.2.0"
+webpki-roots = "0.26.7"
+rustls = "0.23.20"

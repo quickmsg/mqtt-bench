@@ -164,11 +164,6 @@ impl Status {
                     self.pub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                // rumqttc::Packet::PubRec(pub_rec) => todo!(),
-                // rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                // rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                // rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                // rumqttc::Packet::SubAck(sub_ack) => todo!(),
                 rumqttc::Packet::UnsubAck(_) => {
                     self.unsub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -183,8 +178,10 @@ impl Status {
                 rumqttc::Packet::PubRec(pub_rec) => todo!(),
                 rumqttc::Packet::PubRel(pub_rel) => todo!(),
                 rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                rumqttc::Packet::SubAck(sub_ack) => {
+                rumqttc::Packet::Subscribe(_) => {
+                    todo!()
+                }
+                rumqttc::Packet::SubAck(_) => {
                     self.sub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }

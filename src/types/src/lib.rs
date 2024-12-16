@@ -18,6 +18,7 @@ pub struct GroupCreateUpdateReq {
     pub protocol: Protocol,
     pub port: u16,
     pub client_count: usize,
+    pub ssl_conf: Option<SslConf>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -33,6 +34,14 @@ pub enum Protocol {
     Mqtt,
     Websocket,
     Http,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct SslConf {
+    pub verify: bool,
+    pub ca_cert: Option<String>,
+    pub client_cert: Option<String>,
+    pub client_key: Option<String>,
 }
 
 #[derive(Serialize)]

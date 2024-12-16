@@ -6,18 +6,20 @@ use std::{
 use async_trait::async_trait;
 use rumqttc::v5;
 use tokio::{select, sync::watch};
-use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::Status;
 
 use super::{
+    ssl::get_ssl_config,
     v50::{Publish, Subscribe},
     Client, ClientConf, ClientStatus,
 };
 
 pub struct MqttClientV50 {
     running: bool,
-    conf: ClientConf,
+    client_conf: ClientConf,
+    group_conf: Arc<GroupCreateUpdateReq>,
     client: Option<v5::AsyncClient>,
     err: Option<String>,
     publishes: Vec<Publish>,
@@ -26,10 +28,11 @@ pub struct MqttClientV50 {
     status: Arc<Status>,
 }
 
-pub fn new(conf: ClientConf) -> Box<dyn Client> {
+pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Box<dyn Client> {
     Box::new(MqttClientV50 {
         running: false,
-        conf,
+        client_conf,
+        group_conf,
         client: None,
         err: None,
         publishes: vec![],
@@ -64,10 +67,21 @@ impl Client for MqttClientV50 {
             self.running = true;
         }
 
-        let mut mqtt_options =
-            v5::MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
-        mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
-        match (&self.conf.username, &self.conf.password) {
+        let mut mqtt_options = v5::MqttOptions::new(
+            self.client_conf.id.clone(),
+            self.client_conf.host.clone(),
+            self.client_conf.port,
+        );
+
+        if let Some(ssl_conf) = &self.group_conf.ssl_conf {
+            let config = get_ssl_config(ssl_conf);
+            let transport =
+                rumqttc::Transport::Tls(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
+            mqtt_options.set_transport(transport);
+        }
+
+        mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
+        match (&self.client_conf.username, &self.client_conf.password) {
             (Some(username), Some(password)) => {
                 mqtt_options.set_credentials(username.clone(), password.clone());
             }

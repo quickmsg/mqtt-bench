@@ -36,81 +36,34 @@ pub struct Group {
 
 impl Group {
     pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateUpdateReq) -> Self {
+        // TODO 优化req clone
+        let group_conf = Arc::new(req.clone());
         let mut clients = Vec::with_capacity(req.client_count);
-        match req.protocol {
-            types::Protocol::Mqtt => match req.protocol_version {
-                types::ProtocolVersion::V311 => {
-                    for index in 0..req.client_count {
-                        let client_conf = client::ClientConf {
-                            index,
-                            id: format!("client-{}", index),
-                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                            port: req.port,
-                            keep_alive: 60,
-                            username: None,
-                            password: None,
-                        };
-                        clients.push(client::mqtt_v311::new(client_conf));
-                    }
+        for index in 0..req.client_count {
+            let client_conf = client::ClientConf {
+                index,
+                id: format!("client-{}", index),
+                host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                port: req.port,
+                keep_alive: 60,
+                username: None,
+                password: None,
+            };
+            match (&req.protocol, &req.protocol_version) {
+                (types::Protocol::Mqtt, types::ProtocolVersion::V311) => {
+                    clients.push(client::mqtt_v311::new(client_conf, group_conf.clone()));
                 }
-                types::ProtocolVersion::V50 => {
-                    for index in 0..req.client_count {
-                        let client_conf = client::ClientConf {
-                            index,
-                            id: format!("client-{}", index),
-                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                            port: req.port,
-                            keep_alive: 60,
-                            username: None,
-                            password: None,
-                        };
-                        clients.push(client::mqtt_v50::new(client_conf));
-                    }
+                (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
+                    clients.push(client::mqtt_v50::new(client_conf, group_conf.clone()));
                 }
-            },
-            types::Protocol::Websocket => match req.protocol_version {
-                types::ProtocolVersion::V311 => {
-                    for index in 0..req.client_count {
-                        let client_conf = client::ClientConf {
-                            index,
-                            id: format!("client-{}", index),
-                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                            port: req.port,
-                            keep_alive: 60,
-                            username: None,
-                            password: None,
-                        };
-                        clients.push(client::websocket_v311::new(client_conf));
-                    }
+                (types::Protocol::Websocket, types::ProtocolVersion::V311) => {
+                    clients.push(client::websocket_v311::new(client_conf, group_conf.clone()));
                 }
-                types::ProtocolVersion::V50 => {
-                    for index in 0..req.client_count {
-                        let client_conf = client::ClientConf {
-                            index,
-                            id: format!("client-{}", index),
-                            host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                            port: req.port,
-                            keep_alive: 60,
-                            username: None,
-                            password: None,
-                        };
-                        clients.push(client::websocket_v50::new(client_conf));
-                    }
+                (types::Protocol::Websocket, types::ProtocolVersion::V50) => {
+                    clients.push(client::websocket_v50::new(client_conf, group_conf.clone()));
                 }
-            },
-            types::Protocol::Http => {
-                for index in 0..req.client_count {
-                    let client_conf = client::ClientConf {
-                        index,
-                        id: format!("client-{}", index),
-                        host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                        port: req.port,
-                        keep_alive: 60,
-                        username: None,
-                        password: None,
-                    };
+                (types::Protocol::Http, _) => {
                     todo!()
-                    // clients.push(client::http::new(client_conf));
                 }
             }
         }

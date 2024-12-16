@@ -5,6 +5,7 @@ use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 pub mod mqtt_v311;
 pub mod mqtt_v50;
+mod ssl;
 mod v311;
 mod v50;
 pub mod websocket_v311;
