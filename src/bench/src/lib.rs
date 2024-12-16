@@ -144,6 +144,8 @@ pub struct Status {
     pub publish: AtomicUsize,
     // 订阅
     pub subscribe: AtomicUsize,
+    // 订阅确认
+    pub sub_ack: AtomicUsize,
     // 取消订阅
     pub unsubscribe: AtomicUsize,
     // 连接断开
@@ -176,7 +178,18 @@ impl Status {
                     self.ping_resp
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                _ => unreachable!(),
+                rumqttc::Packet::Connect(connect) => todo!(),
+                rumqttc::Packet::Publish(publish) => todo!(),
+                rumqttc::Packet::PubRec(pub_rec) => todo!(),
+                rumqttc::Packet::PubRel(pub_rel) => todo!(),
+                rumqttc::Packet::PubComp(pub_comp) => todo!(),
+                rumqttc::Packet::Subscribe(subscribe) => todo!(),
+                rumqttc::Packet::SubAck(sub_ack) => {
+                    self.sub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Packet::Unsubscribe(unsubscribe) => todo!(),
+                rumqttc::Packet::Disconnect => todo!(),
             },
             rumqttc::Event::Outgoing(outgoing) => match outgoing {
                 rumqttc::Outgoing::Publish(_) => {

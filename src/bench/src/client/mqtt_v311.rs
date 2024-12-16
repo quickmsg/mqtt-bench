@@ -43,7 +43,9 @@ impl MqttClientV311 {
     fn handle_event(status: &Arc<Status>, res: Result<Event, ConnectionError>) {
         match res {
             Ok(event) => status.handle_v311_event(event),
-            Err(_) => todo!(),
+            Err(e) => {
+                println!("{:?}", e);
+            }
         }
     }
 
