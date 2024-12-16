@@ -40,3 +40,19 @@ pub struct ClientStatus {
     pub unsubscribe: usize,
     pub disconnect: usize,
 }
+
+fn get_v311_qos(qos: &types::Qos) -> rumqttc::QoS {
+    match qos {
+        types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
+        types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
+        types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+    }
+}
+
+fn get_v50_qos(qos: &types::Qos) -> rumqttc::v5::mqttbytes::QoS {
+    match qos {
+        types::Qos::AtMostOnce => rumqttc::v5::mqttbytes::QoS::AtMostOnce,
+        types::Qos::AtLeastOnce => rumqttc::v5::mqttbytes::QoS::AtLeastOnce,
+        types::Qos::ExactlyOnce => rumqttc::v5::mqttbytes::QoS::ExactlyOnce,
+    }
+}

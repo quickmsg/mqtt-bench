@@ -12,7 +12,7 @@ use super::{
     Client, ClientConf, ClientStatus,
 };
 
-pub struct MqttClientV311 {
+pub struct WebsocketClientV50 {
     running: bool,
     conf: ClientConf,
     client: Option<AsyncClient>,
@@ -24,7 +24,7 @@ pub struct MqttClientV311 {
 }
 
 pub fn new(conf: ClientConf) -> Box<dyn Client> {
-    Box::new(MqttClientV311 {
+    Box::new(WebsocketClientV50 {
         running: false,
         conf,
         client: None,
@@ -37,22 +37,8 @@ pub fn new(conf: ClientConf) -> Box<dyn Client> {
 }
 
 #[async_trait]
-impl Client for MqttClientV311 {
-    #[must_use]
-    #[allow(
-        elided_named_lifetimes,
-        clippy::type_complexity,
-        clippy::type_repetition_in_bounds
-    )]
-    fn start<'life0, 'async_trait>(
-        &'life0 mut self,
-    ) -> ::core::pin::Pin<
-        Box<dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'async_trait>,
-    >
-    where
-        'life0: 'async_trait,
-        Self: 'async_trait,
-    {
+impl Client for WebsocketClientV50 {
+    async fn start(&mut self) {
         todo!()
     }
 

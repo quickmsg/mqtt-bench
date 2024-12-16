@@ -4,18 +4,18 @@ use std::{
 };
 
 use async_trait::async_trait;
-use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
+use rumqttc::v5;
 use tokio::{select, sync::watch};
 use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::{generate_id, Status};
 
-use super::{Client, ClientConf, ClientStatus};
+use super::{get_v50_qos, Client, ClientConf, ClientStatus};
 
-pub struct ClientV311 {
+pub struct MqttClientV50 {
     running: bool,
     conf: ClientConf,
-    client: Option<AsyncClient>,
+    client: Option<v5::AsyncClient>,
     err: Option<String>,
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
@@ -24,7 +24,7 @@ pub struct ClientV311 {
 }
 
 pub fn new(conf: ClientConf) -> Box<dyn Client> {
-    Box::new(ClientV311 {
+    Box::new(MqttClientV50 {
         running: false,
         conf,
         client: None,
@@ -36,7 +36,7 @@ pub fn new(conf: ClientConf) -> Box<dyn Client> {
     })
 }
 
-impl ClientV311 {
+impl MqttClientV50 {
     pub async fn start(&mut self) {
         if self.running {
             return;
@@ -45,7 +45,7 @@ impl ClientV311 {
         }
 
         let mut mqtt_options =
-            MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
+            v5::MqttOptions::new(self.conf.id.clone(), self.conf.host.clone(), self.conf.port);
         mqtt_options.set_keep_alive(Duration::from_secs(self.conf.keep_alive));
         match (&self.conf.username, &self.conf.password) {
             (Some(username), Some(password)) => {
@@ -61,7 +61,7 @@ impl ClientV311 {
         }
 
         let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+        let (client, mut eventloop) = v5::AsyncClient::new(mqtt_options, 8);
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
         let status = self.status.clone();
@@ -88,57 +88,9 @@ impl ClientV311 {
         }
     }
 
-    fn handle_event(status: &Arc<Status>, event: Result<Event, ConnectionError>) {
-        match event {
-            Ok(event) => match event {
-                Event::Incoming(packet) => match packet {
-                    rumqttc::Packet::Connect(connect) => todo!(),
-                    rumqttc::Packet::ConnAck(_) => {
-                        status.conn_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Publish(publish) => todo!(),
-                    rumqttc::Packet::PubAck(_) => {
-                        status.pub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PubRec(pub_rec) => todo!(),
-                    rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                    rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                    rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                    rumqttc::Packet::SubAck(sub_ack) => todo!(),
-                    rumqttc::Packet::Unsubscribe(_) => todo!(),
-                    rumqttc::Packet::UnsubAck(_) => {
-                        status.unsub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PingReq => {}
-                    rumqttc::Packet::PingResp => {
-                        status.ping_resp.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Disconnect => todo!(),
-                },
-                Event::Outgoing(outgoing) => match outgoing {
-                    rumqttc::Outgoing::Publish(_) => {
-                        status.publish.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Subscribe(_) => {
-                        status.subscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Unsubscribe(_) => {
-                        status.unsubscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PubAck(_) => todo!(),
-                    rumqttc::Outgoing::PubRec(_) => todo!(),
-                    rumqttc::Outgoing::PubRel(_) => todo!(),
-                    rumqttc::Outgoing::PubComp(_) => todo!(),
-                    rumqttc::Outgoing::PingReq => {
-                        status.ping_req.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PingResp => todo!(),
-                    rumqttc::Outgoing::Disconnect => {
-                        status.disconnect.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::AwaitAck(_) => todo!(),
-                },
-            },
+    fn handle_event(status: &Arc<Status>, res: Result<v5::Event, v5::ConnectionError>) {
+        match res {
+            Ok(event) => status.handle_v50_event(event),
             Err(_) => todo!(),
         }
     }
@@ -215,18 +167,14 @@ impl Publish {
         }
     }
 
-    pub fn start(&self, client: AsyncClient) {
+    pub fn start(&self, client: v5::AsyncClient) {
         if self.running {
             return;
         }
 
         let conf = self.conf.clone();
         tokio::spawn(async move {
-            let qos = match conf.qos {
-                types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
-                types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
-                types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
-            };
+            let qos = get_v50_qos(&conf.qos);
             let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
             loop {
                 interval.tick().await;
@@ -252,22 +200,18 @@ impl Subscribe {
         Self { id, conf }
     }
 
-    pub async fn start(&self, client: &AsyncClient) {
-        let qos = match self.conf.qos {
-            types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
-            types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
-            types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
-        };
+    pub async fn start(&self, client: &v5::AsyncClient) {
+        let qos = get_v50_qos(&self.conf.qos);
         client.subscribe(&self.conf.topic, qos).await.unwrap();
     }
 
-    pub async fn stop(&self, client: &AsyncClient) {
+    pub async fn stop(&self, client: &v5::AsyncClient) {
         client.unsubscribe(&self.conf.topic).await.unwrap();
     }
 }
 
 #[async_trait]
-impl Client for ClientV311 {
+impl Client for MqttClientV50 {
     #[must_use]
     #[allow(
         elided_named_lifetimes,

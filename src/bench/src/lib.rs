@@ -145,11 +145,129 @@ pub struct Status {
     pub ping_resp: AtomicUsize,
     // 发布
     pub publish: AtomicUsize,
-
     // 订阅
     pub subscribe: AtomicUsize,
     // 取消订阅
     pub unsubscribe: AtomicUsize,
     // 连接断开
     pub disconnect: AtomicUsize,
+}
+
+impl Status {
+    pub fn handle_v311_event(&self, event: rumqttc::Event) {
+        match event {
+            rumqttc::Event::Incoming(packet) => match packet {
+                rumqttc::Packet::ConnAck(_) => {
+                    self.conn_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Packet::PubAck(_) => {
+                    self.pub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Packet::PubRec(pub_rec) => todo!(),
+                rumqttc::Packet::PubRel(pub_rel) => todo!(),
+                rumqttc::Packet::PubComp(pub_comp) => todo!(),
+                rumqttc::Packet::Subscribe(subscribe) => todo!(),
+                rumqttc::Packet::SubAck(sub_ack) => todo!(),
+                rumqttc::Packet::UnsubAck(_) => {
+                    self.unsub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Packet::PingReq => todo!(),
+                rumqttc::Packet::PingResp => {
+                    self.ping_resp
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                _ => unreachable!(),
+            },
+            rumqttc::Event::Outgoing(outgoing) => match outgoing {
+                rumqttc::Outgoing::Publish(_) => {
+                    self.publish
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::Subscribe(_) => {
+                    self.subscribe
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::Unsubscribe(_) => {
+                    self.unsubscribe
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::PubAck(_) => todo!(),
+                rumqttc::Outgoing::PubRec(_) => todo!(),
+                rumqttc::Outgoing::PubRel(_) => todo!(),
+                rumqttc::Outgoing::PubComp(_) => todo!(),
+                rumqttc::Outgoing::PingReq => {
+                    self.ping_req
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::Disconnect => {
+                    self.disconnect
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::AwaitAck(_) => todo!(),
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    pub fn handle_v50_event(&self, event: rumqttc::v5::Event) {
+        match event {
+            rumqttc::v5::Event::Incoming(packet) => match packet {
+                rumqttc::v5::mqttbytes::v5::Packet::ConnAck(_) => {
+                    self.conn_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::v5::mqttbytes::v5::Packet::PubAck(pub_ack) => {
+                    self.pub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::v5::mqttbytes::v5::Packet::PingReq(ping_req) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::PingResp(ping_resp) => {
+                    self.ping_resp
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::v5::mqttbytes::v5::Packet::Subscribe(subscribe) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::SubAck(sub_ack) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::PubRec(pub_rec) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::PubRel(pub_rel) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::PubComp(pub_comp) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::Unsubscribe(unsubscribe) => todo!(),
+                rumqttc::v5::mqttbytes::v5::Packet::UnsubAck(unsub_ack) => {
+                    self.unsub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                _ => unreachable!(),
+            },
+            rumqttc::v5::Event::Outgoing(outgoing) => match outgoing {
+                rumqttc::Outgoing::Publish(_) => {
+                    self.publish
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::Subscribe(_) => {
+                    self.subscribe
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::Unsubscribe(_) => {
+                    self.unsubscribe
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::PubAck(_) => todo!(),
+                rumqttc::Outgoing::PubRec(_) => todo!(),
+                rumqttc::Outgoing::PubRel(_) => todo!(),
+                rumqttc::Outgoing::PubComp(_) => todo!(),
+                rumqttc::Outgoing::PingReq => {
+                    self.ping_req
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::PingResp => todo!(),
+                rumqttc::Outgoing::Disconnect => {
+                    self.disconnect
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::AwaitAck(_) => todo!(),
+            },
+        }
+    }
 }

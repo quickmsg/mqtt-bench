@@ -10,7 +10,7 @@ use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::{generate_id, Status};
 
-use super::{Client, ClientConf, ClientStatus};
+use super::{get_v311_qos, Client, ClientConf, ClientStatus};
 
 pub struct MqttClientV311 {
     running: bool,
@@ -37,82 +37,15 @@ pub fn new(conf: ClientConf) -> Box<dyn Client> {
 }
 
 impl MqttClientV311 {
-    pub async fn start(&mut self) {}
-
-    fn handle_event(status: &Arc<Status>, event: Result<Event, ConnectionError>) {
-        match event {
-            Ok(event) => match event {
-                Event::Incoming(packet) => match packet {
-                    rumqttc::Packet::Connect(connect) => todo!(),
-                    rumqttc::Packet::ConnAck(_) => {
-                        status.conn_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Publish(publish) => todo!(),
-                    rumqttc::Packet::PubAck(_) => {
-                        status.pub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PubRec(pub_rec) => todo!(),
-                    rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                    rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                    rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                    rumqttc::Packet::SubAck(sub_ack) => todo!(),
-                    rumqttc::Packet::Unsubscribe(_) => todo!(),
-                    rumqttc::Packet::UnsubAck(_) => {
-                        status.unsub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PingReq => {}
-                    rumqttc::Packet::PingResp => {
-                        status.ping_resp.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Disconnect => todo!(),
-                },
-                Event::Outgoing(outgoing) => match outgoing {
-                    rumqttc::Outgoing::Publish(_) => {
-                        status.publish.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Subscribe(_) => {
-                        status.subscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Unsubscribe(_) => {
-                        status.unsubscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PubAck(_) => todo!(),
-                    rumqttc::Outgoing::PubRec(_) => todo!(),
-                    rumqttc::Outgoing::PubRel(_) => todo!(),
-                    rumqttc::Outgoing::PubComp(_) => todo!(),
-                    rumqttc::Outgoing::PingReq => {
-                        status.ping_req.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PingResp => todo!(),
-                    rumqttc::Outgoing::Disconnect => {
-                        status.disconnect.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::AwaitAck(_) => todo!(),
-                },
-            },
+    fn handle_event(status: &Arc<Status>, res: Result<Event, ConnectionError>) {
+        match res {
+            Ok(event) => status.handle_v311_event(event),
             Err(_) => todo!(),
         }
     }
 
     pub fn running(&self) -> bool {
         self.err.is_none()
-    }
-
-    // 获取状态并重置统计数据
-    pub fn get_status(&self) -> ClientStatus {
-        let success = self.err.is_none();
-        ClientStatus {
-            success,
-            conn_ack: self.status.conn_ack.swap(0, Ordering::SeqCst),
-            pub_ack: self.status.pub_ack.swap(0, Ordering::SeqCst),
-            unsub_ack: self.status.unsub_ack.swap(0, Ordering::SeqCst),
-            ping_req: self.status.ping_req.swap(0, Ordering::SeqCst),
-            ping_resp: self.status.ping_resp.swap(0, Ordering::SeqCst),
-            publish: self.status.publish.swap(0, Ordering::SeqCst),
-            subscribe: self.status.subscribe.swap(0, Ordering::SeqCst),
-            unsubscribe: self.status.unsubscribe.swap(0, Ordering::SeqCst),
-            disconnect: self.status.disconnect.swap(0, Ordering::SeqCst),
-        }
     }
 
     pub fn get_err_info(&self) -> Result<(), String> {
@@ -189,7 +122,19 @@ impl Client for MqttClientV311 {
     }
 
     fn get_status(&self) -> ClientStatus {
-        todo!()
+        let success = self.err.is_none();
+        ClientStatus {
+            success,
+            conn_ack: self.status.conn_ack.swap(0, Ordering::SeqCst),
+            pub_ack: self.status.pub_ack.swap(0, Ordering::SeqCst),
+            unsub_ack: self.status.unsub_ack.swap(0, Ordering::SeqCst),
+            ping_req: self.status.ping_req.swap(0, Ordering::SeqCst),
+            ping_resp: self.status.ping_resp.swap(0, Ordering::SeqCst),
+            publish: self.status.publish.swap(0, Ordering::SeqCst),
+            subscribe: self.status.subscribe.swap(0, Ordering::SeqCst),
+            unsubscribe: self.status.unsubscribe.swap(0, Ordering::SeqCst),
+            disconnect: self.status.disconnect.swap(0, Ordering::SeqCst),
+        }
     }
 
     fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
@@ -230,11 +175,7 @@ impl Publish {
 
         let conf = self.conf.clone();
         tokio::spawn(async move {
-            let qos = match conf.qos {
-                types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
-                types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
-                types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
-            };
+            let qos = get_v311_qos(&conf.qos);
             let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
             loop {
                 interval.tick().await;
@@ -261,11 +202,7 @@ impl Subscribe {
     }
 
     pub async fn start(&self, client: &AsyncClient) {
-        let qos = match self.conf.qos {
-            types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
-            types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
-            types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
-        };
+        let qos = get_v311_qos(&self.conf.qos);
         client.subscribe(&self.conf.topic, qos).await.unwrap();
     }
 
