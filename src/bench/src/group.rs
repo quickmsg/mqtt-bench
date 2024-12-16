@@ -109,7 +109,8 @@ impl Group {
                         username: None,
                         password: None,
                     };
-                    clients.push(client::http::new(client_conf));
+                    todo!()
+                    // clients.push(client::http::new(client_conf));
                 }
             }
         }

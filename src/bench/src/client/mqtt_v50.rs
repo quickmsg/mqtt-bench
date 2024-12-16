@@ -8,9 +8,12 @@ use rumqttc::v5;
 use tokio::{select, sync::watch};
 use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{generate_id, Status};
+use crate::Status;
 
-use super::{get_v50_qos, Client, ClientConf, ClientStatus};
+use super::{
+    v50::{Publish, Subscribe},
+    Client, ClientConf, ClientStatus,
+};
 
 pub struct MqttClientV50 {
     running: bool,
@@ -37,7 +40,24 @@ pub fn new(conf: ClientConf) -> Box<dyn Client> {
 }
 
 impl MqttClientV50 {
-    pub async fn start(&mut self) {
+    fn handle_event(status: &Arc<Status>, res: Result<v5::Event, v5::ConnectionError>) {
+        match res {
+            Ok(event) => status.handle_v50_event(event),
+            Err(_) => todo!(),
+        }
+    }
+    // pub fn get_err_info(&self) -> Result<(), String> {
+    //     if self.err.is_some() {
+    //         Err(self.err.clone().unwrap())
+    //     } else {
+    //         Ok(())
+    //     }
+    // }
+}
+
+#[async_trait]
+impl Client for MqttClientV50 {
+    async fn start(&mut self) {
         if self.running {
             return;
         } else {
@@ -88,30 +108,29 @@ impl MqttClientV50 {
         }
     }
 
-    fn handle_event(status: &Arc<Status>, res: Result<v5::Event, v5::ConnectionError>) {
-        match res {
-            Ok(event) => status.handle_v50_event(event),
-            Err(_) => todo!(),
-        }
-    }
-
-    pub fn stop(&mut self) {
+    async fn stop(&mut self) {
         if !self.running {
             return;
         } else {
             self.running = false;
         }
+
+        for publish in self.publishes.iter() {
+            publish.stop();
+        }
+
+        for subscribe in self.subscribes.iter() {
+            subscribe.stop(self.client.as_ref().unwrap()).await;
+        }
+
+        _ = self.client.as_ref().unwrap().disconnect().await;
+
         if let Some(stop_signal_tx) = &self.stop_signal_tx {
             stop_signal_tx.send(()).unwrap();
         }
     }
 
-    pub fn running(&self) -> bool {
-        self.err.is_none()
-    }
-
-    // 获取状态并重置统计数据
-    pub fn get_status(&self) -> ClientStatus {
+    fn get_status(&self) -> ClientStatus {
         let success = self.err.is_none();
         ClientStatus {
             success,
@@ -127,122 +146,19 @@ impl MqttClientV50 {
         }
     }
 
-    pub fn get_err_info(&self) -> Result<(), String> {
-        if self.err.is_some() {
-            Err(self.err.clone().unwrap())
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
-        let publish = Publish::new(generate_id(), req);
+    fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
+        let publish = Publish::new(req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }
         self.publishes.push(publish);
     }
 
-    pub async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
-        let subscribe = Subscribe::new(generate_id(), req);
+    async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
+        let subscribe = Subscribe::new(req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
         }
         self.subscribes.push(subscribe);
-    }
-}
-
-pub struct Publish {
-    pub id: String,
-    pub running: bool,
-    pub conf: Arc<PublishCreateUpdateReq>,
-}
-
-impl Publish {
-    pub fn new(id: String, conf: Arc<PublishCreateUpdateReq>) -> Self {
-        Self {
-            id,
-            running: false,
-            conf,
-        }
-    }
-
-    pub fn start(&self, client: v5::AsyncClient) {
-        if self.running {
-            return;
-        }
-
-        let conf = self.conf.clone();
-        tokio::spawn(async move {
-            let qos = get_v50_qos(&conf.qos);
-            let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
-            loop {
-                interval.tick().await;
-                let _ = client
-                    .publish(conf.topic.clone(), qos, conf.retain, conf.payload.clone())
-                    .await;
-            }
-        });
-    }
-
-    pub fn stop(&self) {
-        todo!()
-    }
-}
-
-pub struct Subscribe {
-    pub id: String,
-    pub conf: Arc<SubscribeCreateUpdateReq>,
-}
-
-impl Subscribe {
-    pub fn new(id: String, conf: Arc<SubscribeCreateUpdateReq>) -> Self {
-        Self { id, conf }
-    }
-
-    pub async fn start(&self, client: &v5::AsyncClient) {
-        let qos = get_v50_qos(&self.conf.qos);
-        client.subscribe(&self.conf.topic, qos).await.unwrap();
-    }
-
-    pub async fn stop(&self, client: &v5::AsyncClient) {
-        client.unsubscribe(&self.conf.topic).await.unwrap();
-    }
-}
-
-#[async_trait]
-impl Client for MqttClientV50 {
-    #[must_use]
-    #[allow(
-        elided_named_lifetimes,
-        clippy::type_complexity,
-        clippy::type_repetition_in_bounds
-    )]
-    fn start<'life0, 'async_trait>(
-        &'life0 mut self,
-    ) -> ::core::pin::Pin<
-        Box<dyn ::core::future::Future<Output = ()> + ::core::marker::Send + 'async_trait>,
-    >
-    where
-        'life0: 'async_trait,
-        Self: 'async_trait,
-    {
-        todo!()
-    }
-
-    fn stop(&mut self) {
-        todo!()
-    }
-
-    fn get_status(&self) -> ClientStatus {
-        todo!()
-    }
-
-    fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
-        todo!()
-    }
-
-    async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
-        todo!()
     }
 }

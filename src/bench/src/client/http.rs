@@ -7,10 +7,7 @@ use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::Status;
 
-use super::{
-    mqtt_v311::{Publish, Subscribe},
-    Client, ClientConf, ClientStatus,
-};
+use super::{Client, ClientConf, ClientStatus};
 
 pub struct HttpClient {
     running: bool,

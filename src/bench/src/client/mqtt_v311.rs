@@ -8,9 +8,12 @@ use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{generate_id, Status};
+use crate::Status;
 
-use super::{get_v311_qos, Client, ClientConf, ClientStatus};
+use super::{
+    v311::{Publish, Subscribe},
+    Client, ClientConf, ClientStatus,
+};
 
 pub struct MqttClientV311 {
     running: bool,
@@ -44,17 +47,13 @@ impl MqttClientV311 {
         }
     }
 
-    pub fn running(&self) -> bool {
-        self.err.is_none()
-    }
-
-    pub fn get_err_info(&self) -> Result<(), String> {
-        if self.err.is_some() {
-            Err(self.err.clone().unwrap())
-        } else {
-            Ok(())
-        }
-    }
+    // pub fn get_err_info(&self) -> Result<(), String> {
+    //     if self.err.is_some() {
+    //         Err(self.err.clone().unwrap())
+    //     } else {
+    //         Ok(())
+    //     }
+    // }
 }
 
 #[async_trait]
@@ -110,12 +109,23 @@ impl Client for MqttClientV311 {
         }
     }
 
-    fn stop(&mut self) {
+    async fn stop(&mut self) {
         if !self.running {
             return;
         } else {
             self.running = false;
         }
+
+        for publish in self.publishes.iter() {
+            publish.stop();
+        }
+
+        for subscribe in self.subscribes.iter() {
+            subscribe.stop(self.client.as_ref().unwrap()).await;
+        }
+
+        _ = self.client.as_ref().unwrap().disconnect().await;
+
         if let Some(stop_signal_tx) = &self.stop_signal_tx {
             stop_signal_tx.send(()).unwrap();
         }
@@ -138,7 +148,7 @@ impl Client for MqttClientV311 {
     }
 
     fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
-        let publish = Publish::new(generate_id(), req);
+        let publish = Publish::new(req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }
@@ -146,67 +156,10 @@ impl Client for MqttClientV311 {
     }
 
     async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
-        let subscribe = Subscribe::new(generate_id(), req);
+        let subscribe = Subscribe::new(req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
         }
         self.subscribes.push(subscribe);
-    }
-}
-pub struct Publish {
-    pub id: String,
-    pub running: bool,
-    pub conf: Arc<PublishCreateUpdateReq>,
-}
-
-impl Publish {
-    pub fn new(id: String, conf: Arc<PublishCreateUpdateReq>) -> Self {
-        Self {
-            id,
-            running: false,
-            conf,
-        }
-    }
-
-    pub fn start(&self, client: AsyncClient) {
-        if self.running {
-            return;
-        }
-
-        let conf = self.conf.clone();
-        tokio::spawn(async move {
-            let qos = get_v311_qos(&conf.qos);
-            let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
-            loop {
-                interval.tick().await;
-                let _ = client
-                    .publish(conf.topic.clone(), qos, conf.retain, conf.payload.clone())
-                    .await;
-            }
-        });
-    }
-
-    pub fn stop(&self) {
-        todo!()
-    }
-}
-
-pub struct Subscribe {
-    pub id: String,
-    pub conf: Arc<SubscribeCreateUpdateReq>,
-}
-
-impl Subscribe {
-    pub fn new(id: String, conf: Arc<SubscribeCreateUpdateReq>) -> Self {
-        Self { id, conf }
-    }
-
-    pub async fn start(&self, client: &AsyncClient) {
-        let qos = get_v311_qos(&self.conf.qos);
-        client.subscribe(&self.conf.topic, qos).await.unwrap();
-    }
-
-    pub async fn stop(&self, client: &AsyncClient) {
-        client.unsubscribe(&self.conf.topic).await.unwrap();
     }
 }

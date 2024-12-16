@@ -8,10 +8,10 @@ use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
 use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{generate_id, Status};
+use crate::Status;
 
 use super::{
-    mqtt_v311::{Publish, Subscribe},
+    v311::{Publish, Subscribe},
     Client, ClientConf, ClientStatus,
 };
 
@@ -40,57 +40,9 @@ pub fn new(conf: ClientConf) -> Box<dyn Client> {
 }
 
 impl WebsocketClientV311 {
-    fn handle_event(status: &Arc<Status>, event: Result<Event, ConnectionError>) {
-        match event {
-            Ok(event) => match event {
-                Event::Incoming(packet) => match packet {
-                    rumqttc::Packet::Connect(connect) => todo!(),
-                    rumqttc::Packet::ConnAck(_) => {
-                        status.conn_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Publish(publish) => todo!(),
-                    rumqttc::Packet::PubAck(_) => {
-                        status.pub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PubRec(pub_rec) => todo!(),
-                    rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                    rumqttc::Packet::PubComp(pub_comp) => todo!(),
-                    rumqttc::Packet::Subscribe(subscribe) => todo!(),
-                    rumqttc::Packet::SubAck(sub_ack) => todo!(),
-                    rumqttc::Packet::Unsubscribe(_) => todo!(),
-                    rumqttc::Packet::UnsubAck(_) => {
-                        status.unsub_ack.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::PingReq => {}
-                    rumqttc::Packet::PingResp => {
-                        status.ping_resp.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Packet::Disconnect => todo!(),
-                },
-                Event::Outgoing(outgoing) => match outgoing {
-                    rumqttc::Outgoing::Publish(_) => {
-                        status.publish.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Subscribe(_) => {
-                        status.subscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::Unsubscribe(_) => {
-                        status.unsubscribe.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PubAck(_) => todo!(),
-                    rumqttc::Outgoing::PubRec(_) => todo!(),
-                    rumqttc::Outgoing::PubRel(_) => todo!(),
-                    rumqttc::Outgoing::PubComp(_) => todo!(),
-                    rumqttc::Outgoing::PingReq => {
-                        status.ping_req.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::PingResp => todo!(),
-                    rumqttc::Outgoing::Disconnect => {
-                        status.disconnect.fetch_add(1, Ordering::SeqCst);
-                    }
-                    rumqttc::Outgoing::AwaitAck(_) => todo!(),
-                },
-            },
+    fn handle_event(status: &Arc<Status>, res: Result<Event, ConnectionError>) {
+        match res {
+            Ok(event) => status.handle_v311_event(event),
             Err(_) => todo!(),
         }
     }
@@ -151,12 +103,23 @@ impl Client for WebsocketClientV311 {
         }
     }
 
-    fn stop(&mut self) {
+    async fn stop(&mut self) {
         if !self.running {
             return;
         } else {
             self.running = false;
         }
+
+        for publish in self.publishes.iter() {
+            publish.stop();
+        }
+
+        for subscribe in self.subscribes.iter() {
+            subscribe.stop(self.client.as_ref().unwrap()).await;
+        }
+
+        _ = self.client.as_ref().unwrap().disconnect().await;
+
         if let Some(stop_signal_tx) = &self.stop_signal_tx {
             stop_signal_tx.send(()).unwrap();
         }
@@ -179,7 +142,7 @@ impl Client for WebsocketClientV311 {
     }
 
     fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
-        let publish = Publish::new(generate_id(), req);
+        let publish = Publish::new(req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }
@@ -187,7 +150,7 @@ impl Client for WebsocketClientV311 {
     }
 
     async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
-        let subscribe = Subscribe::new(generate_id(), req);
+        let subscribe = Subscribe::new(req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
         }

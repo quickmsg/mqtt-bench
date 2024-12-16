@@ -64,6 +64,31 @@ pub struct PublishCreateUpdateReq {
     // 毫秒
     pub interval: u64,
     pub payload: String,
+
+    pub v311: Option<PublishV311>,
+    pub v50: Option<PublishV50>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublishV311 {
+    // pub name: String,
+    // pub topic: String,
+    // pub qos: Qos,
+    // pub retain: bool,
+    // // 毫秒
+    // pub interval: u64,
+    // pub payload: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublishV50 {
+    // pub name: String,
+    // pub topic: String,
+    // pub qos: Qos,
+    // pub retain: bool,
+    // // 毫秒
+    // pub interval: u64,
+    // pub payload: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -106,7 +131,15 @@ pub struct SubscribeCreateUpdateReq {
     pub name: String,
     pub topic: String,
     pub qos: Qos,
+    pub v311: Option<SubscribeV311>,
+    pub v50: Option<SubscribeV50>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SubscribeV311 {}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SubscribeV50 {}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Status {
