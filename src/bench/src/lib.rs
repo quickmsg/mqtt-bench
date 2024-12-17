@@ -1,5 +1,6 @@
 use std::sync::{atomic::AtomicUsize, Arc, LazyLock};
 
+use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::RwLock;
 use types::{
@@ -92,6 +93,18 @@ pub async fn update_group(group_id: String, req: GroupCreateUpdateReq) {
         .await;
 }
 
+pub async fn delete_group(group_id: String) {
+    // RUNTIME_INSTANCE
+    //     .groups
+    //     .write()
+    //     .await
+    //     .iter_mut()
+    //     .find(|group| group.id == group_id)
+    //     .unwrap()
+    //     .update(req)
+    //     .await;
+}
+
 pub async fn start_group(group_id: String) {
     RUNTIME_INSTANCE
         .groups
@@ -128,6 +141,49 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .await;
 }
 
+pub async fn list_publishes(group_id: String) {
+    // RUNTIME_INSTANCE
+    //     .groups
+    //     .read()
+    //     .await
+    //     .iter()
+    //     .find(|group| group.id == group_id)
+    //     .unwrap()
+    //     .list_publishes()
+    //     .await;
+    todo!()
+}
+
+pub async fn update_publish(
+    group_id: String,
+    publish_id: String,
+    req: types::PublishCreateUpdateReq,
+) {
+    // RUNTIME_INSTANCE
+    //     .groups
+    //     .write()
+    //     .await
+    //     .iter_mut()
+    //     .find(|group| group.id == group_id)
+    //     .unwrap()
+    //     .update_publish(publish_id, req)
+    //     .await;
+    todo!()
+}
+
+pub async fn delete_publish(group_id: String, publish_id: String) {
+    // RUNTIME_INSTANCE
+    //     .groups
+    //     .write()
+    //     .await
+    //     .iter_mut()
+    //     .find(|group| group.id == group_id)
+    //     .unwrap()
+    //     .update_publish(publish_id, req)
+    //     .await;
+    todo!()
+}
+
 pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
     RUNTIME_INSTANCE
         .groups
@@ -138,6 +194,39 @@ pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
         .unwrap()
         .create_subscribe(req)
         .await;
+}
+
+pub async fn list_subscribes(group_id: String) {
+    // RUNTIME_INSTANCE
+    //     .groups
+    //     .read()
+    //     .await
+    //     .iter()
+    //     .find(|group| group.id == group_id)
+    //     .unwrap()
+    //     .list_publishes()
+    //     .await;
+    todo!()
+}
+
+pub async fn update_subscribe(
+    group_id: String,
+    subscribe_id: String,
+    req: SubscribeCreateUpdateReq,
+) {
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .update_subscribe(subscribe_id, req)
+        .await;
+}
+
+pub async fn delete_subscribe(group_id: String, subscribe_id: String) {
+    todo!()
 }
 
 #[derive(Default)]
@@ -288,5 +377,38 @@ impl Status {
                 rumqttc::Outgoing::AwaitAck(_) => todo!(),
             },
         }
+    }
+}
+
+struct ErrorManager {
+    task_err: Option<String>,
+    client_err: BiLock<Option<String>>,
+}
+
+impl ErrorManager {
+    fn new(client_err: BiLock<Option<String>>) -> Self {
+        Self {
+            task_err: None,
+            client_err,
+        }
+    }
+
+    async fn put_ok(&mut self) {
+        if self.task_err.is_none() {
+            return;
+        }
+        self.task_err = None;
+        *self.client_err.lock().await = None;
+    }
+
+    async fn put_err(&mut self, err: String) {
+        if let Some(task_err) = &self.task_err {
+            if *task_err == err {
+                return;
+            }
+        }
+
+        self.task_err = Some(err.clone());
+        *self.client_err.lock().await = Some(err);
     }
 }

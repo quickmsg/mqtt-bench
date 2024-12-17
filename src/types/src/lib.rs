@@ -184,3 +184,17 @@ pub enum Status {
     Waiting,
     Updating,
 }
+
+#[derive(Serialize)]
+pub struct ListClientResp {
+    pub list: Vec<ListClientRespItem>,
+}
+
+#[derive(Serialize)]
+pub struct ListClientRespItem {
+    pub client_id: String,
+    pub status: Status,
+    pub addr: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub err: Option<String>,
+}

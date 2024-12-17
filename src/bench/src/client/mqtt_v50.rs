@@ -4,11 +4,14 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::lock::BiLock;
 use rumqttc::v5;
 use tokio::{select, sync::watch};
-use types::{GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{
+    GroupCreateUpdateReq, ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
+};
 
-use crate::Status;
+use crate::{ErrorManager, Status};
 
 use super::{
     ssl::get_ssl_config,
@@ -21,7 +24,7 @@ pub struct MqttClientV50 {
     client_conf: ClientConf,
     group_conf: Arc<GroupCreateUpdateReq>,
     client: Option<v5::AsyncClient>,
-    err: Option<String>,
+    err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
@@ -43,19 +46,21 @@ pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Bo
 }
 
 impl MqttClientV50 {
-    fn handle_event(status: &Arc<Status>, res: Result<v5::Event, v5::ConnectionError>) {
+    async fn handle_event(
+        status: &Arc<Status>,
+        res: Result<v5::Event, v5::ConnectionError>,
+        error_manager: &mut ErrorManager,
+    ) {
         match res {
-            Ok(event) => status.handle_v50_event(event),
-            Err(_) => todo!(),
+            Ok(event) => {
+                status.handle_v50_event(event);
+                error_manager.put_ok().await;
+            }
+            Err(e) => {
+                error_manager.put_err(e.to_string()).await;
+            }
         }
     }
-    // pub fn get_err_info(&self) -> Result<(), String> {
-    //     if self.err.is_some() {
-    //         Err(self.err.clone().unwrap())
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
 }
 
 #[async_trait]
@@ -99,7 +104,11 @@ impl Client for MqttClientV50 {
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
         let status = self.status.clone();
+
+        let (err1, err2) = BiLock::new(None);
+        self.err = Some(err1);
         tokio::spawn(async move {
+            let mut error_manager = ErrorManager::new(err2);
             loop {
                 select! {
                     _ = stop_signal_rx.changed() => {
@@ -107,7 +116,7 @@ impl Client for MqttClientV50 {
                     }
 
                     event = eventloop.poll() => {
-                        Self::handle_event(&status, event);
+                        Self::handle_event(&status, event, &mut error_manager).await;
                     }
                 }
             }
@@ -160,19 +169,79 @@ impl Client for MqttClientV50 {
         }
     }
 
-    fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>) {
-        let publish = Publish::new(req);
+    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
+        let publish = Publish::new(id, req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }
         self.publishes.push(publish);
     }
 
-    async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>) {
-        let subscribe = Subscribe::new(req);
+    fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>) {
+        let publish = self
+            .publishes
+            .iter_mut()
+            .find(|publish| *publish.id == *id)
+            .unwrap();
+        publish.conf = req;
+        if let Some(client) = &self.client {
+            publish.stop();
+            publish.start(client.clone());
+        }
+    }
+
+    fn delete_publish(&mut self, id: &String) {
+        let publish = self
+            .publishes
+            .iter_mut()
+            .find(|publish| *publish.id == *id)
+            .unwrap();
+        publish.stop();
+        self.publishes.retain(|publish| *publish.id != *id);
+    }
+
+    async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
+        let subscribe = Subscribe::new(id, req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
         }
         self.subscribes.push(subscribe);
+    }
+
+    async fn update_subscribe(
+        &mut self,
+        subscribe_id: &String,
+        conf: Arc<SubscribeCreateUpdateReq>,
+    ) {
+        let subscribe = self
+            .subscribes
+            .iter_mut()
+            .find(|subscribe| *subscribe.id == *subscribe_id)
+            .unwrap();
+        subscribe.conf = conf;
+        match self.client.as_ref() {
+            Some(client) => {
+                subscribe.stop(client).await;
+                subscribe.start(client).await;
+            }
+            None => return,
+        }
+    }
+
+    async fn delete_subscribe(&mut self, subscribe_id: &String) {
+        let subscribe = self
+            .subscribes
+            .iter_mut()
+            .find(|subscribe| *subscribe.id == *subscribe_id)
+            .unwrap();
+        if let Some(client) = &self.client {
+            subscribe.stop(client).await;
+        }
+        self.subscribes
+            .retain(|subscribe| *subscribe.id != *subscribe_id);
+    }
+
+    async fn read(&self) -> ListClientRespItem {
+        todo!()
     }
 }

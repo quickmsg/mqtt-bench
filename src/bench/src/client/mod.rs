@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 pub mod mqtt_v311;
 pub mod mqtt_v50;
@@ -16,8 +16,16 @@ pub trait Client: Sync + Send {
     async fn start(&mut self);
     async fn stop(&mut self);
     fn get_status(&self) -> ClientStatus;
-    fn create_publish(&mut self, req: Arc<PublishCreateUpdateReq>);
-    async fn create_subscribe(&mut self, req: Arc<SubscribeCreateUpdateReq>);
+
+    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>);
+    fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>);
+    fn delete_publish(&mut self, id: &String);
+
+    async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
+    async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
+    async fn delete_subscribe(&mut self, subscribe_id: &String);
+
+    async fn read(&self) -> ListClientRespItem;
 }
 
 pub struct ClientConf {

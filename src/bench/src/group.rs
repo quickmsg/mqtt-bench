@@ -30,8 +30,8 @@ pub struct Group {
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
-    publishes: Vec<Publish>,
-    subscribes: Vec<Subscribe>,
+    publishes: Vec<(Arc<String>, Arc<PublishCreateUpdateReq>)>,
+    subscribes: Vec<(Arc<String>, Arc<SubscribeCreateUpdateReq>)>,
 }
 
 impl Group {
@@ -217,15 +217,13 @@ impl Group {
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
-        let req = Arc::new(req);
+        let id = Arc::new(generate_id());
+        let conf = Arc::new(req);
         self.clients.write().await.iter_mut().for_each(|client| {
-            client.create_publish(req.clone());
+            client.create_publish(id.clone(), conf.clone());
         });
 
-        self.publishes.push(Publish {
-            id: generate_id(),
-            conf: req,
-        });
+        self.publishes.push((id, conf));
     }
 
     pub async fn list_publishes(&self) {
@@ -237,23 +235,32 @@ impl Group {
     }
 
     pub async fn update_publish(&mut self, publish_id: String, req: PublishCreateUpdateReq) {
-        todo!()
+        let conf = Arc::new(req);
+        for client in self.clients.write().await.iter_mut() {
+            client.update_publish(&publish_id, conf.clone());
+        }
+        self.publishes
+            .iter_mut()
+            .find(|(id, _)| **id == publish_id)
+            .unwrap()
+            .1 = conf;
     }
 
     pub async fn delete_publish(&mut self, publish_id: String) {
-        todo!()
+        for client in self.clients.write().await.iter_mut() {
+            client.delete_publish(&publish_id);
+        }
+        self.subscribes.retain(|(id, _)| **id != publish_id);
     }
 
     pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) {
-        let req = Arc::new(req);
+        let id = Arc::new(generate_id());
+        let conf = Arc::new(req);
         for client in self.clients.write().await.iter_mut() {
-            client.create_subscribe(req.clone()).await;
+            client.create_subscribe(id.clone(), conf.clone()).await;
         }
 
-        self.subscribes.push(Subscribe {
-            id: generate_id(),
-            conf: req,
-        });
+        self.subscribes.push((id, conf));
     }
 
     pub async fn list_subscribes(&self) {
@@ -265,20 +272,18 @@ impl Group {
     }
 
     pub async fn update_subscribe(&mut self, subscribe_id: String, req: SubscribeCreateUpdateReq) {
-        todo!()
+        // TODO 判断是否只是更改名称或完全没更改，避免全部无用更新
+
+        let conf = Arc::new(req);
+        for client in self.clients.write().await.iter_mut() {
+            client.update_subscribe(&subscribe_id, conf.clone()).await;
+        }
     }
 
     pub async fn delete_subscribe(&mut self, subscribe_id: String) {
-        todo!()
+        for client in self.clients.write().await.iter_mut() {
+            client.delete_subscribe(&subscribe_id).await;
+        }
+        self.subscribes.retain(|(id, _)| **id != subscribe_id);
     }
-}
-
-pub struct Publish {
-    id: String,
-    conf: Arc<PublishCreateUpdateReq>,
-}
-
-pub struct Subscribe {
-    id: String,
-    conf: Arc<SubscribeCreateUpdateReq>,
 }

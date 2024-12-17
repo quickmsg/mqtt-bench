@@ -33,12 +33,8 @@ pub async fn run() {
                                     .route("/", post(create_publish).get(list_publishes))
                                     .nest(
                                         "/:publish_id",
-                                        Router::new().route(
-                                            "/",
-                                            get(read_publish)
-                                                .put(update_publish)
-                                                .delete(delete_publish),
-                                        ),
+                                        Router::new()
+                                            .route("/", put(update_publish).delete(delete_publish)),
                                     ),
                             )
                             .nest(
@@ -49,9 +45,7 @@ pub async fn run() {
                                         "/:subscribe_id",
                                         Router::new().route(
                                             "/",
-                                            get(read_subscribe)
-                                                .put(update_subscribe)
-                                                .delete(delete_subscribe),
+                                            put(update_subscribe).delete(delete_subscribe),
                                         ),
                                     ),
                             ),
@@ -90,7 +84,9 @@ async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupCreateU
     bench::update_group(group_id, req).await;
 }
 
-async fn delete_group() {}
+async fn delete_group(Path(group_id): Path<String>) {
+    bench::delete_group(group_id).await;
+}
 
 async fn start_group(Path(group_id): Path<String>) {
     bench::start_group(group_id).await;
@@ -104,32 +100,36 @@ async fn create_publish(Path(group_id): Path<String>, Json(req): Json<PublishCre
     bench::create_publish(group_id, req).await;
 }
 
-async fn list_publishes(Path(group_id): Path<String>) {}
-
-async fn read_publish(Path((group_id, publish_id)): Path<(String, String)>) {}
+async fn list_publishes(Path(group_id): Path<String>) {
+    bench::list_publishes(group_id).await;
+}
 
 async fn update_publish(
     Path((group_id, publish_id)): Path<(String, String)>,
     Json(req): Json<PublishCreateUpdateReq>,
 ) {
+    bench::update_publish(group_id, publish_id, req).await;
 }
 
-async fn delete_publish(Path((group_id, publish_id)): Path<(String, String)>) {}
+async fn delete_publish(Path((group_id, publish_id)): Path<(String, String)>) {
+    bench::delete_publish(group_id, publish_id).await;
+}
 
 async fn create_subscribe(Path(group_id): Path<String>, Json(req): Json<SubscribeCreateUpdateReq>) {
     bench::create_subscribe(group_id, req).await;
 }
 
-async fn list_subscribes(Path(group_id): Path<String>) {}
-
-async fn read_subscribe(Path((group_id, subscribe_id)): Path<(String, String)>) {}
+async fn list_subscribes(Path(group_id): Path<String>) {
+    bench::list_subscribes(group_id).await;
+}
 
 async fn update_subscribe(
     Path((group_id, subscribe_id)): Path<(String, String)>,
     Json(req): Json<SubscribeCreateUpdateReq>,
 ) {
+    bench::update_subscribe(group_id, subscribe_id, req).await;
 }
 
 async fn delete_subscribe(Path((group_id, subscribe_id)): Path<(String, String)>) {
-    todo!()
+    bench::delete_subscribe(group_id, subscribe_id).await;
 }

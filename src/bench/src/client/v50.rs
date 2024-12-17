@@ -13,14 +13,16 @@ fn get_qos(qos: &types::Qos) -> rumqttc::v5::mqttbytes::QoS {
 }
 
 pub struct Publish {
+    pub id: Arc<String>,
     pub conf: Arc<PublishCreateUpdateReq>,
     stop_signal_tx: watch::Sender<()>,
 }
 
 impl Publish {
-    pub fn new(conf: Arc<PublishCreateUpdateReq>) -> Self {
+    pub fn new(id: Arc<String>, conf: Arc<PublishCreateUpdateReq>) -> Self {
         let (stop_signal_tx, _) = watch::channel(());
         Self {
+            id,
             conf,
             stop_signal_tx,
         }
@@ -54,12 +56,13 @@ impl Publish {
 }
 
 pub struct Subscribe {
+    pub id: Arc<String>,
     pub conf: Arc<SubscribeCreateUpdateReq>,
 }
 
 impl Subscribe {
-    pub fn new(conf: Arc<SubscribeCreateUpdateReq>) -> Self {
-        Self { conf }
+    pub fn new(id: Arc<String>, conf: Arc<SubscribeCreateUpdateReq>) -> Self {
+        Self { id, conf }
     }
 
     pub async fn start(&self, client: &AsyncClient) {
