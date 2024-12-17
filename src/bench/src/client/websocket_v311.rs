@@ -179,6 +179,10 @@ impl Client for WebsocketClientV311 {
         }
     }
 
+    async fn update(&mut self, group_conf: Arc<GroupCreateUpdateReq>) {
+        todo!()
+    }
+
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
         let mut publish = Publish::new(id, req);
         if let Some(client) = &self.client {

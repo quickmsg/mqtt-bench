@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{
+    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
+};
 
 use crate::UsizeMetrics;
 
@@ -17,6 +19,7 @@ pub mod websocket_v50;
 pub trait Client: Sync + Send {
     async fn start(&mut self);
     async fn stop(&mut self);
+    async fn update(&mut self, group_conf: Arc<GroupCreateUpdateReq>);
     fn get_metrics(&self) -> ClientMetrics;
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>);

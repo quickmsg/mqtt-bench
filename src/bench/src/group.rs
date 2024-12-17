@@ -39,18 +39,42 @@ impl Group {
     pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateUpdateReq) -> Self {
         // TODO 优化req clone
         let group_conf = Arc::new(req.clone());
-        let mut clients = Vec::with_capacity(req.client_count);
-        for index in 0..req.client_count {
+
+        let clients = Self::new_clients(0, group_conf.client_count, &broker_info, &group_conf);
+
+        let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
+        Self {
+            id,
+            conf: Arc::new(req),
+            running: false,
+            clients: Arc::new(RwLock::new(clients)),
+            status: None,
+            broker_info,
+            client_connected_count: Arc::new(AtomicUsize::new(0)),
+            stop_signal_tx,
+            publishes: vec![],
+            subscribes: vec![],
+        }
+    }
+
+    fn new_clients(
+        offset: usize,
+        client_count: usize,
+        broker_info: &Arc<BrokerUpdateReq>,
+        group_conf: &Arc<GroupCreateUpdateReq>,
+    ) -> Vec<Box<dyn Client>> {
+        let mut clients = Vec::with_capacity(client_count);
+        for index in offset..client_count + offset {
             let client_conf = client::ClientConf {
                 index,
                 id: format!("client-{}", index),
                 host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                port: req.port,
+                port: group_conf.port,
                 keep_alive: 60,
                 username: None,
                 password: None,
             };
-            match (&req.protocol, &req.protocol_version) {
+            match (&group_conf.protocol, &group_conf.protocol_version) {
                 (types::Protocol::Mqtt, types::ProtocolVersion::V311) => {
                     clients.push(client::mqtt_v311::new(client_conf, group_conf.clone()));
                 }
@@ -68,20 +92,7 @@ impl Group {
                 }
             }
         }
-
-        let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
-        Self {
-            id,
-            conf: Arc::new(req),
-            running: false,
-            clients: Arc::new(RwLock::new(clients)),
-            status: None,
-            broker_info,
-            client_connected_count: Arc::new(AtomicUsize::new(0)),
-            stop_signal_tx,
-            publishes: vec![],
-            subscribes: vec![],
-        }
+        clients
     }
 
     pub async fn start(&mut self) {
@@ -208,13 +219,88 @@ impl Group {
         }
     }
 
-    pub async fn update(&self, req: GroupCreateUpdateReq) {
-        let conf = Arc::new(req);
-        match self.conf.client_count.cmp(&conf.client_count) {
-            std::cmp::Ordering::Less => todo!(),
-            std::cmp::Ordering::Equal => {}
-            std::cmp::Ordering::Greater => todo!(),
+    fn check_update_client(
+        old_conf: &Arc<GroupCreateUpdateReq>,
+        new_conf: &Arc<GroupCreateUpdateReq>,
+    ) -> bool {
+        if old_conf.port != new_conf.port {
+            return true;
         }
+
+        match (&old_conf.ssl_conf, &new_conf.ssl_conf) {
+            (Some(old_ssl_conf), Some(new_ssl_conf)) => {
+                if old_ssl_conf.verify != new_ssl_conf.verify {
+                    return true;
+                }
+
+                match (&old_ssl_conf.ca_cert, &new_ssl_conf.ca_cert) {
+                    (Some(old_ca_cert), Some(new_ca_cert)) => {
+                        if old_ca_cert != new_ca_cert {
+                            return true;
+                        }
+                    }
+                    (None, Some(_)) => return true,
+                    (Some(_), None) => return true,
+                    _ => {}
+                }
+
+                match (&old_ssl_conf.client_cert, &new_ssl_conf.client_cert) {
+                    (Some(old_client_cert), Some(new_client_cert)) => {
+                        if old_client_cert != new_client_cert {
+                            return true;
+                        }
+                    }
+                    (None, Some(_)) => return true,
+                    (Some(_), None) => return true,
+                    _ => {}
+                }
+
+                match (&old_ssl_conf.client_key, &new_ssl_conf.client_key) {
+                    (Some(old_client_key), Some(new_client_key)) => {
+                        if old_client_key != new_client_key {
+                            return true;
+                        }
+                    }
+                    (None, Some(_)) => return true,
+                    (Some(_), None) => return true,
+                    _ => {}
+                }
+
+                return false;
+            }
+            (None, Some(_)) => true,
+            (Some(_), None) => true,
+            _ => false,
+        }
+    }
+
+    pub async fn update(&mut self, req: GroupCreateUpdateReq) {
+        let conf = Arc::new(req);
+        let need_update_client = Self::check_update_client(&self.conf, &conf);
+
+        match self.conf.client_count.cmp(&conf.client_count) {
+            std::cmp::Ordering::Less => {
+                let diff = conf.client_count - self.conf.client_count;
+                if need_update_client {
+                    for client in self.clients.write().await.iter_mut() {
+                        client.update(conf.clone()).await;
+                    }
+                }
+
+                let new_clients =
+                    Self::new_clients(self.conf.client_count, diff, &self.broker_info, &conf);
+                self.clients.write().await.extend(new_clients);
+            }
+            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Greater => {
+                let diff = self.conf.client_count - conf.client_count;
+                let mut client_guards = self.clients.write().await;
+                for _ in 0..diff {
+                    client_guards.pop().unwrap().stop().await;
+                }
+            }
+        }
+        self.conf = conf;
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {

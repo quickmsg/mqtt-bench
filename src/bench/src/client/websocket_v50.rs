@@ -155,6 +155,10 @@ impl Client for WebsocketClientV50 {
         }
     }
 
+    async fn update(&mut self, group_conf: Arc<GroupCreateUpdateReq>) {
+        todo!()
+    }
+
     fn get_metrics(&self) -> ClientMetrics {
         let success = self.err.is_none();
         let usize_metrics = self.metrics.take_metrics();
