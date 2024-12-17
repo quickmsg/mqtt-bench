@@ -4,8 +4,10 @@ use axum::{
     Json, Router,
 };
 use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListPublishResp, ListSubscribeResp, PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq
+    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListPublishResp, ListSubscribeResp,
+    PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
 };
 
 pub async fn run() {
@@ -49,6 +51,12 @@ pub async fn run() {
                                     ),
                             ),
                     ),
+            )
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
             ),
     );
 

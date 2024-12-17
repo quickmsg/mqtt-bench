@@ -145,21 +145,21 @@ impl Group {
         {
             let clients_guard = clients.read().await;
             clients_guard.iter().for_each(|client| {
-                let client_status = client.get_status();
-                if client_status.success {
+                let client_metrics = client.get_metrics();
+                if client_metrics.success {
                     succeed += 1;
                 } else {
                     failed += 1;
                 }
-                packet_metrics.conn_ack += client_status.conn_ack;
-                packet_metrics.pub_ack += client_status.pub_ack;
-                packet_metrics.unsub_ack += client_status.unsub_ack;
-                packet_metrics.ping_req += client_status.ping_req;
-                packet_metrics.ping_resp += client_status.ping_resp;
-                packet_metrics.publish += client_status.publish;
-                packet_metrics.subscribe += client_status.subscribe;
-                packet_metrics.unsubscribe += client_status.unsubscribe;
-                packet_metrics.disconnect += client_status.disconnect;
+                packet_metrics.conn_ack += client_metrics.usize_metrics.conn_ack;
+                packet_metrics.pub_ack += client_metrics.usize_metrics.pub_ack;
+                packet_metrics.unsub_ack += client_metrics.usize_metrics.unsub_ack;
+                packet_metrics.ping_req += client_metrics.usize_metrics.ping_req;
+                packet_metrics.ping_resp += client_metrics.usize_metrics.ping_resp;
+                packet_metrics.publish += client_metrics.usize_metrics.incoming_publish;
+                packet_metrics.subscribe += client_metrics.usize_metrics.subscribe;
+                packet_metrics.unsubscribe += client_metrics.usize_metrics.unsubscribe;
+                packet_metrics.disconnect += client_metrics.usize_metrics.disconnect;
             });
         }
         group_status.lock().await.push(GroupMetrics {

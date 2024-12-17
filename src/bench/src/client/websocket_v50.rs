@@ -1,7 +1,4 @@
-use std::{
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::lock::BiLock;
@@ -14,12 +11,12 @@ use types::{
     GroupCreateUpdateReq, ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
 };
 
-use crate::{ErrorManager, Status};
+use crate::{AtomicMetrics, ErrorManager};
 
 use super::{
     ssl::get_ssl_config,
     v50::{Publish, Subscribe},
-    Client, ClientConf, ClientStatus,
+    Client, ClientConf, ClientMetrics,
 };
 
 pub struct WebsocketClientV50 {
@@ -31,7 +28,7 @@ pub struct WebsocketClientV50 {
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
-    status: Arc<Status>,
+    metrics: Arc<AtomicMetrics>,
 }
 
 pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Box<dyn Client> {
@@ -44,19 +41,19 @@ pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Bo
         publishes: vec![],
         subscribes: vec![],
         stop_signal_tx: None,
-        status: Arc::new(Status::default()),
+        metrics: Arc::new(AtomicMetrics::default()),
     })
 }
 
 impl WebsocketClientV50 {
     async fn handle_event(
-        status: &Arc<Status>,
+        metrics: &Arc<AtomicMetrics>,
         res: Result<Event, ConnectionError>,
         error_manager: &mut ErrorManager,
     ) {
         match res {
             Ok(event) => {
-                status.handle_v50_event(event);
+                metrics.handle_v50_event(event);
                 error_manager.put_ok().await;
             }
             Err(e) => {
@@ -108,7 +105,7 @@ impl Client for WebsocketClientV50 {
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
-        let status = self.status.clone();
+        let metrics = self.metrics.clone();
 
         let (err1, err2) = BiLock::new(None);
         self.err = Some(err1);
@@ -121,7 +118,7 @@ impl Client for WebsocketClientV50 {
                     }
 
                     event = eventloop.poll() => {
-                        Self::handle_event(&status, event, &mut error_manager).await;
+                        Self::handle_event(&metrics, event, &mut error_manager).await;
                     }
                 }
             }
@@ -158,19 +155,12 @@ impl Client for WebsocketClientV50 {
         }
     }
 
-    fn get_status(&self) -> ClientStatus {
+    fn get_metrics(&self) -> ClientMetrics {
         let success = self.err.is_none();
-        ClientStatus {
+        let usize_metrics = self.metrics.take_metrics();
+        ClientMetrics {
             success,
-            conn_ack: self.status.conn_ack.swap(0, Ordering::SeqCst),
-            pub_ack: self.status.pub_ack.swap(0, Ordering::SeqCst),
-            unsub_ack: self.status.unsub_ack.swap(0, Ordering::SeqCst),
-            ping_req: self.status.ping_req.swap(0, Ordering::SeqCst),
-            ping_resp: self.status.ping_resp.swap(0, Ordering::SeqCst),
-            publish: self.status.publish.swap(0, Ordering::SeqCst),
-            subscribe: self.status.subscribe.swap(0, Ordering::SeqCst),
-            unsubscribe: self.status.unsubscribe.swap(0, Ordering::SeqCst),
-            disconnect: self.status.disconnect.swap(0, Ordering::SeqCst),
+            usize_metrics,
         }
     }
 

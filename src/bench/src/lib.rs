@@ -94,15 +94,21 @@ pub async fn update_group(group_id: String, req: GroupCreateUpdateReq) {
 }
 
 pub async fn delete_group(group_id: String) {
-    // RUNTIME_INSTANCE
-    //     .groups
-    //     .write()
-    //     .await
-    //     .iter_mut()
-    //     .find(|group| group.id == group_id)
-    //     .unwrap()
-    //     .update(req)
-    //     .await;
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .stop()
+        .await;
+
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .retain(|group| group.id != group_id);
 }
 
 pub async fn start_group(group_id: String) {
@@ -158,29 +164,27 @@ pub async fn update_publish(
     publish_id: String,
     req: types::PublishCreateUpdateReq,
 ) {
-    // RUNTIME_INSTANCE
-    //     .groups
-    //     .write()
-    //     .await
-    //     .iter_mut()
-    //     .find(|group| group.id == group_id)
-    //     .unwrap()
-    //     .update_publish(publish_id, req)
-    //     .await;
-    todo!()
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .update_publish(publish_id, req)
+        .await
 }
 
 pub async fn delete_publish(group_id: String, publish_id: String) {
-    // RUNTIME_INSTANCE
-    //     .groups
-    //     .write()
-    //     .await
-    //     .iter_mut()
-    //     .find(|group| group.id == group_id)
-    //     .unwrap()
-    //     .update_publish(publish_id, req)
-    //     .await;
-    todo!()
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .delete_publish(publish_id)
+        .await;
 }
 
 pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
@@ -224,11 +228,19 @@ pub async fn update_subscribe(
 }
 
 pub async fn delete_subscribe(group_id: String, subscribe_id: String) {
-    todo!()
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .delete_subscribe(subscribe_id)
+        .await;
 }
 
 #[derive(Default)]
-pub struct Status {
+pub struct AtomicMetrics {
     // 连接确认
     pub conn_ack: AtomicUsize,
     // 发布确认
@@ -240,7 +252,13 @@ pub struct Status {
     // ping响应
     pub ping_resp: AtomicUsize,
     // 发布
-    pub publish: AtomicUsize,
+    pub outgoing_publish: AtomicUsize,
+
+    pub incoming_publish: AtomicUsize,
+
+    pub pub_rel: AtomicUsize,
+    pub pub_rec: AtomicUsize,
+    pub pub_comp: AtomicUsize,
     // 订阅
     pub subscribe: AtomicUsize,
     // 订阅确认
@@ -251,7 +269,36 @@ pub struct Status {
     pub disconnect: AtomicUsize,
 }
 
-impl Status {
+pub struct UsizeMetrics {
+    // 连接确认
+    pub conn_ack: usize,
+    // 发布确认
+    pub pub_ack: usize,
+    // 取消订阅确认
+    pub unsub_ack: usize,
+    // ping请求
+    pub ping_req: usize,
+    // ping响应
+    pub ping_resp: usize,
+    // 发布
+    pub outgoing_publish: usize,
+
+    pub incoming_publish: usize,
+
+    pub pub_rel: usize,
+    pub pub_rec: usize,
+    pub pub_comp: usize,
+    // 订阅
+    pub subscribe: usize,
+    // 订阅确认
+    pub sub_ack: usize,
+    // 取消订阅
+    pub unsubscribe: usize,
+    // 连接断开
+    pub disconnect: usize,
+}
+
+impl AtomicMetrics {
     pub fn handle_v311_event(&self, event: rumqttc::Event) {
         match event {
             rumqttc::Event::Incoming(packet) => match packet {
@@ -274,9 +321,15 @@ impl Status {
                 }
                 rumqttc::Packet::Connect(connect) => todo!(),
                 rumqttc::Packet::Publish(publish) => todo!(),
-                rumqttc::Packet::PubRec(pub_rec) => todo!(),
+                rumqttc::Packet::PubRec(_) => {
+                    self.pub_rec
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Packet::PubRel(pub_rel) => todo!(),
-                rumqttc::Packet::PubComp(pub_comp) => todo!(),
+                rumqttc::Packet::PubComp(_) => {
+                    self.pub_comp
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Packet::Subscribe(_) => {
                     todo!()
                 }
@@ -289,7 +342,7 @@ impl Status {
             },
             rumqttc::Event::Outgoing(outgoing) => match outgoing {
                 rumqttc::Outgoing::Publish(_) => {
-                    self.publish
+                    self.outgoing_publish
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 rumqttc::Outgoing::Subscribe(_) => {
@@ -300,10 +353,19 @@ impl Status {
                     self.unsubscribe
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Outgoing::PubAck(_) => todo!(),
+                rumqttc::Outgoing::PubAck(_) => {
+                    self.pub_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Outgoing::PubRec(_) => todo!(),
-                rumqttc::Outgoing::PubRel(_) => todo!(),
-                rumqttc::Outgoing::PubComp(_) => todo!(),
+                rumqttc::Outgoing::PubRel(_) => {
+                    self.pub_rel
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                rumqttc::Outgoing::PubComp(_) => {
+                    self.pub_comp
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Outgoing::PingReq => {
                     self.ping_req
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -348,7 +410,7 @@ impl Status {
             },
             rumqttc::v5::Event::Outgoing(outgoing) => match outgoing {
                 rumqttc::Outgoing::Publish(_) => {
-                    self.publish
+                    self.outgoing_publish
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 rumqttc::Outgoing::Subscribe(_) => {
@@ -374,6 +436,33 @@ impl Status {
                 }
                 rumqttc::Outgoing::AwaitAck(_) => todo!(),
             },
+        }
+    }
+
+    pub fn take_metrics(&self) -> UsizeMetrics {
+        UsizeMetrics {
+            conn_ack: self.conn_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
+            pub_ack: self.pub_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
+            unsub_ack: self.unsub_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
+            ping_req: self.ping_req.swap(0, std::sync::atomic::Ordering::SeqCst),
+            ping_resp: self.ping_resp.swap(0, std::sync::atomic::Ordering::SeqCst),
+            outgoing_publish: self
+                .outgoing_publish
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            incoming_publish: self
+                .incoming_publish
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            pub_rel: self
+                .incoming_publish
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            pub_rec: self.pub_rec.swap(0, std::sync::atomic::Ordering::SeqCst),
+            pub_comp: self.pub_comp.swap(0, std::sync::atomic::Ordering::SeqCst),
+            subscribe: self.subscribe.swap(0, std::sync::atomic::Ordering::SeqCst),
+            sub_ack: self.sub_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
+            unsubscribe: self
+                .unsubscribe
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            disconnect: self.disconnect.swap(0, std::sync::atomic::Ordering::SeqCst),
         }
     }
 }

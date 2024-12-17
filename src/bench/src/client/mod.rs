@@ -3,6 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use types::{ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
+use crate::UsizeMetrics;
+
 pub mod mqtt_v311;
 pub mod mqtt_v50;
 mod ssl;
@@ -15,7 +17,7 @@ pub mod websocket_v50;
 pub trait Client: Sync + Send {
     async fn start(&mut self);
     async fn stop(&mut self);
-    fn get_status(&self) -> ClientStatus;
+    fn get_metrics(&self) -> ClientMetrics;
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>);
     fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>);
@@ -38,15 +40,7 @@ pub struct ClientConf {
     pub password: Option<String>,
 }
 
-pub struct ClientStatus {
+pub struct ClientMetrics {
     pub success: bool,
-    pub conn_ack: usize,
-    pub pub_ack: usize,
-    pub unsub_ack: usize,
-    pub ping_req: usize,
-    pub ping_resp: usize,
-    pub publish: usize,
-    pub subscribe: usize,
-    pub unsubscribe: usize,
-    pub disconnect: usize,
+    pub usize_metrics: UsizeMetrics,
 }
