@@ -86,7 +86,9 @@ async fn read_group(Path(group_id): Path<String>) -> Json<ReadGroupResp> {
     Json(bench::read_group(group_id).await)
 }
 
-async fn update_group() {}
+async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupCreateUpdateReq>) {
+    bench::update_group(group_id, req).await;
+}
 
 async fn delete_group() {}
 

@@ -7,3 +7,5 @@ edition.workspace = true
 api = { workspace = true }
 
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3.19"

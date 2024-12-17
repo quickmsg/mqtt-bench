@@ -9,8 +9,8 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, GroupStatus, PublishCreateUpdateReq, ReadGroupResp,
-    Status, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, GroupCreateUpdateReq, GroupMetrics, PacketMetrics, PublishCreateUpdateReq,
+    ReadGroupResp, SubscribeCreateUpdateReq,
 };
 
 use crate::{
@@ -26,7 +26,7 @@ pub struct Group {
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
     client_connected_count: Arc<AtomicUsize>,
 
-    status: Option<BiLock<Vec<GroupStatus>>>,
+    status: Option<BiLock<Vec<GroupMetrics>>>,
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
@@ -111,7 +111,7 @@ impl Group {
         self.stop_signal_tx.send(()).unwrap();
     }
 
-    fn start_collect_status(&mut self, status: BiLock<Vec<GroupStatus>>) {
+    fn start_collect_status(&mut self, status: BiLock<Vec<GroupMetrics>>) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(1));
         let clients = self.clients.clone();
@@ -132,7 +132,7 @@ impl Group {
 
     async fn collect_status(
         clients: &Arc<RwLock<Vec<Box<dyn Client>>>>,
-        group_status: &BiLock<Vec<GroupStatus>>,
+        group_status: &BiLock<Vec<GroupMetrics>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -140,7 +140,7 @@ impl Group {
             .as_secs();
         let mut succeed = 0;
         let mut failed = 0;
-        let mut status = Status::default();
+        let mut packet_metrics = PacketMetrics::default();
         {
             let clients_guard = clients.read().await;
             clients_guard.iter().for_each(|client| {
@@ -150,22 +150,22 @@ impl Group {
                 } else {
                     failed += 1;
                 }
-                status.conn_ack += client_status.conn_ack;
-                status.pub_ack += client_status.pub_ack;
-                status.unsub_ack += client_status.unsub_ack;
-                status.ping_req += client_status.ping_req;
-                status.ping_resp += client_status.ping_resp;
-                status.publish += client_status.publish;
-                status.subscribe += client_status.subscribe;
-                status.unsubscribe += client_status.unsubscribe;
-                status.disconnect += client_status.disconnect;
+                packet_metrics.conn_ack += client_status.conn_ack;
+                packet_metrics.pub_ack += client_status.pub_ack;
+                packet_metrics.unsub_ack += client_status.unsub_ack;
+                packet_metrics.ping_req += client_status.ping_req;
+                packet_metrics.ping_resp += client_status.ping_resp;
+                packet_metrics.publish += client_status.publish;
+                packet_metrics.subscribe += client_status.subscribe;
+                packet_metrics.unsubscribe += client_status.unsubscribe;
+                packet_metrics.disconnect += client_status.disconnect;
             });
         }
-        group_status.lock().await.push(GroupStatus {
+        group_status.lock().await.push(GroupMetrics {
             ts,
             succeed,
             failed,
-            status,
+            packet_metrics,
         });
     }
 
@@ -204,6 +204,15 @@ impl Group {
             id: self.id.clone(),
             conf: (*self.conf).clone(),
             status: self.status.as_ref().unwrap().lock().await.clone(),
+        }
+    }
+
+    pub async fn update(&self, req: GroupCreateUpdateReq) {
+        let conf = Arc::new(req);
+        match self.conf.client_count.cmp(&conf.client_count) {
+            std::cmp::Ordering::Less => todo!(),
+            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Greater => todo!(),
         }
     }
 

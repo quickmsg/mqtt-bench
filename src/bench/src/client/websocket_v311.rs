@@ -6,6 +6,7 @@ use std::{
 use async_trait::async_trait;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
+use tracing::debug;
 use types::{GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::Status;
@@ -46,7 +47,7 @@ impl WebsocketClientV311 {
     fn handle_event(status: &Arc<Status>, res: Result<Event, ConnectionError>) {
         match res {
             Ok(event) => status.handle_v311_event(event),
-            Err(_) => todo!(),
+            Err(e) => {}
         }
     }
 }
@@ -60,20 +61,37 @@ impl Client for WebsocketClientV311 {
             self.running = true;
         }
 
-        let mut mqtt_options = MqttOptions::new(
-            self.client_conf.id.clone(),
-            self.client_conf.host.clone(),
-            self.client_conf.port,
-        );
+        let mut mqtt_options = match &&self.group_conf.ssl_conf {
+            Some(ssl_conf) => {
+                let mut mqtt_options = MqttOptions::new(
+                    self.client_conf.id.clone(),
+                    format!(
+                        "wss://{}:{}/mqtt",
+                        self.client_conf.host, self.client_conf.port
+                    ),
+                    self.client_conf.port,
+                );
+                let config = get_ssl_config(ssl_conf);
+                let transport =
+                    rumqttc::Transport::Wss(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
+                mqtt_options.set_transport(transport);
+                mqtt_options
+            }
+            None => {
+                let mut mqtt_options = MqttOptions::new(
+                    self.client_conf.id.clone(),
+                    format!(
+                        "ws://{}:{}/mqtt",
+                        self.client_conf.host, self.client_conf.port
+                    ),
+                    self.client_conf.port,
+                );
+                mqtt_options.set_transport(Transport::Ws);
+                mqtt_options
+            }
+        };
 
-        if let Some(ssl_conf) = &self.group_conf.ssl_conf {
-            let config = get_ssl_config(ssl_conf);
-            let transport =
-                rumqttc::Transport::Wss(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
-            mqtt_options.set_transport(transport);
-        } else {
-            mqtt_options.set_transport(Transport::Ws);
-        }
+        debug!("{:?}", mqtt_options);
 
         mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
         match (&self.client_conf.username, &self.client_conf.password) {

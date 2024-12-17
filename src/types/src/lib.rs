@@ -65,7 +65,7 @@ pub struct ListGroupRespItem {
 pub struct ReadGroupResp {
     pub id: String,
     pub conf: GroupCreateUpdateReq,
-    pub status: Vec<GroupStatus>,
+    pub status: Vec<GroupMetrics>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -132,11 +132,11 @@ pub struct ClientStatus {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GroupStatus {
+pub struct GroupMetrics {
     pub ts: u64,
     pub succeed: usize,
     pub failed: usize,
-    pub status: Status,
+    pub packet_metrics: PacketMetrics,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -155,7 +155,7 @@ pub struct SubscribeV311 {}
 pub struct SubscribeV50 {}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct Status {
+pub struct PacketMetrics {
     // 连接确认
     pub conn_ack: usize,
     // 发布确认
@@ -174,4 +174,13 @@ pub struct Status {
     pub unsubscribe: usize,
     // 连接断开
     pub disconnect: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    Running,
+    Stopped,
+    Waiting,
+    Updating,
 }

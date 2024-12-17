@@ -80,6 +80,18 @@ pub async fn read_group(group_id: String) -> ReadGroupResp {
         .await
 }
 
+pub async fn update_group(group_id: String, req: GroupCreateUpdateReq) {
+    RUNTIME_INSTANCE
+        .groups
+        .write()
+        .await
+        .iter_mut()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .update(req)
+        .await;
+}
+
 pub async fn start_group(group_id: String) {
     RUNTIME_INSTANCE
         .groups

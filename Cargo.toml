@@ -11,3 +11,4 @@ api = { path = "src/api" }
 types = { path = "src/types" }
 bench = { path = "src/bench" }
 tokio = { version = "1.42.0", features = ["full"] }
+tracing = "0.1.41"

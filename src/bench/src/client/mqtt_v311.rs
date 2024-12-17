@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use types::{GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
@@ -21,7 +22,7 @@ pub struct MqttClientV311 {
     client_conf: ClientConf,
     group_conf: Arc<GroupCreateUpdateReq>,
     client: Option<AsyncClient>,
-    err: Option<String>,
+    err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
@@ -43,22 +44,33 @@ pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Bo
 }
 
 impl MqttClientV311 {
-    fn handle_event(status: &Arc<Status>, res: Result<Event, ConnectionError>) {
+    async fn handle_event(
+        status: &Arc<Status>,
+        res: Result<Event, ConnectionError>,
+        client_err: &BiLock<Option<String>>,
+        task_err: &mut Option<String>,
+    ) {
         match res {
-            Ok(event) => status.handle_v311_event(event),
+            Ok(event) => {
+                if task_err.is_some() {
+                    *task_err = None;
+                    *client_err.lock().await = None;
+                }
+                status.handle_v311_event(event);
+            }
             Err(e) => {
-                println!("{:?}", e);
+                if let Some(task_err) = task_err {
+                    if task_err == &e.to_string() {
+                        return;
+                    }
+                }
+
+                let e = e.to_string();
+                *task_err = Some(e.clone());
+                *client_err.lock().await = Some(e);
             }
         }
     }
-
-    // pub fn get_err_info(&self) -> Result<(), String> {
-    //     if self.err.is_some() {
-    //         Err(self.err.clone().unwrap())
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
 }
 
 #[async_trait]
@@ -102,7 +114,11 @@ impl Client for MqttClientV311 {
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
         let status = self.status.clone();
+
+        let (err1, err2) = BiLock::new(None);
+        self.err = Some(err1);
         tokio::spawn(async move {
+            let mut task_err: Option<String> = None;
             loop {
                 select! {
                     _ = stop_signal_rx.changed() => {
@@ -110,7 +126,7 @@ impl Client for MqttClientV311 {
                     }
 
                     event = eventloop.poll() => {
-                        Self::handle_event(&status, event);
+                        Self::handle_event(&status, event, &err2, &mut task_err).await;
                     }
                 }
             }
