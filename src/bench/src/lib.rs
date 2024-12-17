@@ -5,7 +5,7 @@ use group::Group;
 use tokio::sync::RwLock;
 use types::{
     BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ListPublishResp,
-    ReadGroupResp, SubscribeCreateUpdateReq,
+    ListSubscribeResp, ReadGroupResp, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -195,17 +195,16 @@ pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
         .await;
 }
 
-pub async fn list_subscribes(group_id: String) {
-    // RUNTIME_INSTANCE
-    //     .groups
-    //     .read()
-    //     .await
-    //     .iter()
-    //     .find(|group| group.id == group_id)
-    //     .unwrap()
-    //     .list_publishes()
-    //     .await;
-    todo!()
+pub async fn list_subscribes(group_id: String) -> ListSubscribeResp {
+    RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .list_subscribes()
+        .await
 }
 
 pub async fn update_subscribe(

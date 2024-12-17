@@ -151,6 +151,19 @@ pub struct SubscribeCreateUpdateReq {
     pub v50: Option<SubscribeV50>,
 }
 
+#[derive(Serialize)]
+pub struct ListSubscribeResp {
+    pub list: Vec<ListSubscribeRespItem>,
+}
+
+#[derive(Serialize)]
+pub struct ListSubscribeRespItem {
+    pub id: String,
+    pub name: String,
+    pub topic: String,
+    pub qos: Qos,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubscribeV311 {}
 

@@ -10,7 +10,8 @@ use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
     BrokerUpdateReq, GroupCreateUpdateReq, GroupMetrics, ListPublishResp, ListPublishRespItem,
-    PacketMetrics, PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
+    ListSubscribeResp, ListSubscribeRespItem, PacketMetrics, PublishCreateUpdateReq, ReadGroupResp,
+    SubscribeCreateUpdateReq,
 };
 
 use crate::{
@@ -274,8 +275,17 @@ impl Group {
         self.subscribes.push((id, conf));
     }
 
-    pub async fn list_subscribes(&self) {
-        todo!()
+    pub async fn list_subscribes(&self) -> ListSubscribeResp {
+        let mut list = Vec::with_capacity(self.subscribes.len());
+        for (id, conf) in self.subscribes.iter() {
+            list.push(ListSubscribeRespItem {
+                id: (**id).clone(),
+                name: conf.name.clone(),
+                topic: conf.topic.clone(),
+                qos: conf.qos,
+            });
+        }
+        ListSubscribeResp { list }
     }
 
     pub async fn read_subscribe(&self, subscribe_id: String) {
