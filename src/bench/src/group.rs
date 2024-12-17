@@ -232,18 +232,11 @@ impl Group {
         for (id, conf) in self.publishes.iter() {
             list.push(ListPublishRespItem {
                 id: (**id).clone(),
-                name: conf.name.clone(),
-                topic: conf.topic.clone(),
-                qos: conf.qos,
-                interval: conf.interval,
+                conf: (**conf).clone(),
             });
         }
 
         ListPublishResp { list }
-    }
-
-    pub async fn read_publish(&self, publish_id: String) {
-        todo!()
     }
 
     pub async fn update_publish(&mut self, publish_id: String, req: PublishCreateUpdateReq) {
@@ -280,16 +273,10 @@ impl Group {
         for (id, conf) in self.subscribes.iter() {
             list.push(ListSubscribeRespItem {
                 id: (**id).clone(),
-                name: conf.name.clone(),
-                topic: conf.topic.clone(),
-                qos: conf.qos,
+                conf: (**conf).clone(),
             });
         }
         ListSubscribeResp { list }
-    }
-
-    pub async fn read_subscribe(&self, subscribe_id: String) {
-        todo!()
     }
 
     pub async fn update_subscribe(&mut self, subscribe_id: String, req: SubscribeCreateUpdateReq) {

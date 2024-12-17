@@ -90,10 +90,7 @@ pub struct ListPublishResp {
 #[derive(Serialize)]
 pub struct ListPublishRespItem {
     pub id: String,
-    pub name: String,
-    pub topic: String,
-    pub qos: Qos,
-    pub interval: u64,
+    pub conf: PublishCreateUpdateReq,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -159,9 +156,13 @@ pub struct ListSubscribeResp {
 #[derive(Serialize)]
 pub struct ListSubscribeRespItem {
     pub id: String,
-    pub name: String,
-    pub topic: String,
-    pub qos: Qos,
+    pub conf: SubscribeCreateUpdateReq,
+}
+
+#[derive(Serialize)]
+pub struct ReadSubscribeResp {
+    pub id: String,
+    pub conf: SubscribeCreateUpdateReq,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
