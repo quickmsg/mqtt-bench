@@ -9,10 +9,11 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, GroupMetrics,
-    ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem, PacketMetrics,
-    PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupMetrics,
+    GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
+    PacketMetrics, PublishCreateUpdateReq, ReadGroupResp, SslConf, SubscribeCreateUpdateReq,
 };
+use uuid::Uuid;
 
 use crate::{
     client::{self, Client},
@@ -21,7 +22,7 @@ use crate::{
 
 pub struct Group {
     pub id: String,
-    pub conf: Arc<GroupCreateUpdateReq>,
+    pub conf: GroupCreateReq,
     running: bool,
 
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
@@ -35,17 +36,33 @@ pub struct Group {
     subscribes: Vec<(Arc<String>, Arc<SubscribeCreateUpdateReq>)>,
 }
 
+pub struct ClientGroupConf {
+    pub port: u16,
+    pub ssl_conf: Option<SslConf>,
+}
+
 impl Group {
-    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateUpdateReq) -> Self {
+    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateReq) -> Self {
         // TODO 优化req clone
         let group_conf = Arc::new(req.clone());
+        let client_group_conf = Arc::new(ClientGroupConf {
+            port: req.port,
+            ssl_conf: req.ssl_conf.clone(),
+        });
 
-        let clients = Self::new_clients(0, group_conf.client_count, &broker_info, &group_conf);
+        let clients = Self::new_clients(
+            &id,
+            0,
+            group_conf.client_count,
+            &broker_info,
+            &group_conf,
+            client_group_conf,
+        );
 
         let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             id,
-            conf: Arc::new(req),
+            conf: req,
             running: false,
             clients: Arc::new(RwLock::new(clients)),
             status: None,
@@ -58,34 +75,77 @@ impl Group {
     }
 
     fn new_clients(
+        group_id: &String,
         offset: usize,
         client_count: usize,
         broker_info: &Arc<BrokerUpdateReq>,
-        group_conf: &Arc<GroupCreateUpdateReq>,
+        group_conf: &GroupCreateReq,
+        client_group_conf: Arc<ClientGroupConf>,
     ) -> Vec<Box<dyn Client>> {
         let mut clients = Vec::with_capacity(client_count);
+
+        let client_id_template = parse_id(&group_conf.client_id);
+
         for index in offset..client_count + offset {
+            let client_id = match client_id_template {
+                ClientIdTemplate::None => group_conf.client_id.clone(),
+                ClientIdTemplate::Index => {
+                    group_conf.client_id.replace("${index}", &index.to_string())
+                }
+                ClientIdTemplate::GroupId => group_conf.client_id.replace("${group_id}", group_id),
+                ClientIdTemplate::Uuid => group_conf
+                    .client_id
+                    .replace("${uuid}", &Uuid::new_v4().to_string()),
+                ClientIdTemplate::IndexGroupId => group_conf
+                    .client_id
+                    .replace("${index}", &index.to_string())
+                    .replace("${group_id}", group_id),
+                ClientIdTemplate::IndexUuid => group_conf
+                    .client_id
+                    .replace("${index}", &index.to_string())
+                    .replace("${uuid}", &Uuid::new_v4().to_string()),
+                ClientIdTemplate::UuidGroupId => group_conf
+                    .client_id
+                    .replace("${uuid}", &Uuid::new_v4().to_string())
+                    .replace("${group_id}", group_id),
+                ClientIdTemplate::IndexGroupIdUuid => group_conf
+                    .client_id
+                    .replace("${index}", &index.to_string())
+                    .replace("${group_id}", group_id)
+                    .replace("${uuid}", &Uuid::new_v4().to_string()),
+            };
             let client_conf = client::ClientConf {
                 index,
-                id: format!("client-{}", index),
+                id: client_id,
                 host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                port: group_conf.port,
                 keep_alive: 60,
                 username: None,
                 password: None,
             };
             match (&group_conf.protocol, &group_conf.protocol_version) {
                 (types::Protocol::Mqtt, types::ProtocolVersion::V311) => {
-                    clients.push(client::mqtt_v311::new(client_conf, group_conf.clone()));
+                    clients.push(client::mqtt_v311::new(
+                        client_conf,
+                        client_group_conf.clone(),
+                    ));
                 }
                 (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
-                    clients.push(client::mqtt_v50::new(client_conf, group_conf.clone()));
+                    clients.push(client::mqtt_v50::new(
+                        client_conf,
+                        client_group_conf.clone(),
+                    ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V311) => {
-                    clients.push(client::websocket_v311::new(client_conf, group_conf.clone()));
+                    clients.push(client::websocket_v311::new(
+                        client_conf,
+                        client_group_conf.clone(),
+                    ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V50) => {
-                    clients.push(client::websocket_v50::new(client_conf, group_conf.clone()));
+                    clients.push(client::websocket_v50::new(
+                        client_conf,
+                        client_group_conf.clone(),
+                    ));
                 }
                 (types::Protocol::Http, _) => {
                     todo!()
@@ -214,16 +274,17 @@ impl Group {
     pub async fn read(&self) -> ReadGroupResp {
         ReadGroupResp {
             id: self.id.clone(),
-            conf: (*self.conf).clone(),
+            conf: self.conf.clone(),
             status: self.status.as_ref().unwrap().lock().await.clone(),
         }
     }
 
-    fn check_update_client(
-        old_conf: &Arc<GroupCreateUpdateReq>,
-        new_conf: &Arc<GroupCreateUpdateReq>,
-    ) -> bool {
+    fn check_update_client(old_conf: &GroupCreateReq, new_conf: &GroupUpdateReq) -> bool {
         if old_conf.port != new_conf.port {
+            return true;
+        }
+
+        if old_conf.client_id != new_conf.client_id {
             return true;
         }
 
@@ -274,33 +335,54 @@ impl Group {
         }
     }
 
-    pub async fn update(&mut self, req: GroupCreateUpdateReq) {
-        let conf = Arc::new(req);
-        let need_update_client = Self::check_update_client(&self.conf, &conf);
+    pub async fn update(&mut self, req: GroupUpdateReq) {
+        let need_update_client = Self::check_update_client(&self.conf, &req);
 
-        match self.conf.client_count.cmp(&conf.client_count) {
+        let client_group_conf = Arc::new(ClientGroupConf {
+            port: req.port,
+            ssl_conf: req.ssl_conf.clone(),
+        });
+
+        match self.conf.client_count.cmp(&req.client_count) {
             std::cmp::Ordering::Less => {
-                let diff = conf.client_count - self.conf.client_count;
+                let diff = req.client_count - self.conf.client_count;
                 if need_update_client {
                     for client in self.clients.write().await.iter_mut() {
-                        client.update(conf.clone()).await;
+                        client.update(client_group_conf.clone()).await;
                     }
                 }
 
-                let new_clients =
-                    Self::new_clients(self.conf.client_count, diff, &self.broker_info, &conf);
+                let new_clients = Self::new_clients(
+                    &self.id,
+                    self.conf.client_count,
+                    diff,
+                    &self.broker_info,
+                    &self.conf,
+                    client_group_conf,
+                );
                 self.clients.write().await.extend(new_clients);
             }
-            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Equal => {
+                // TODO client_id 变更问题
+                if need_update_client {
+                    for client in self.clients.write().await.iter_mut() {
+                        client.update(client_group_conf.clone()).await;
+                    }
+                }
+            }
             std::cmp::Ordering::Greater => {
-                let diff = self.conf.client_count - conf.client_count;
+                let diff = self.conf.client_count - req.client_count;
                 let mut client_guards = self.clients.write().await;
                 for _ in 0..diff {
                     client_guards.pop().unwrap().stop().await;
                 }
             }
         }
-        self.conf = conf;
+
+        self.conf.name = req.name;
+        self.conf.client_count = req.client_count;
+        self.conf.port = req.port;
+        self.conf.ssl_conf = req.ssl_conf.clone();
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
@@ -396,5 +478,44 @@ impl Group {
             count: self.clients.read().await.len(),
             list,
         }
+    }
+}
+
+enum ClientIdTemplate {
+    None,
+    Index,
+    GroupId,
+    Uuid,
+    IndexGroupId,
+    IndexUuid,
+    UuidGroupId,
+    IndexGroupIdUuid,
+}
+
+fn parse_id(id: &str) -> ClientIdTemplate {
+    let mut has_index = false;
+    if id.contains("${index}") {
+        has_index = true;
+    }
+
+    let mut has_group_id = false;
+    if id.contains("${group_id}") {
+        has_group_id = true;
+    }
+
+    let mut has_uuid = false;
+    if id.contains("${uuid}") {
+        has_uuid = true;
+    }
+
+    match (has_index, has_group_id, has_uuid) {
+        (true, true, true) => ClientIdTemplate::IndexGroupIdUuid,
+        (true, true, false) => ClientIdTemplate::IndexGroupId,
+        (true, false, true) => ClientIdTemplate::IndexUuid,
+        (true, false, false) => ClientIdTemplate::Index,
+        (false, true, true) => ClientIdTemplate::UuidGroupId,
+        (false, true, false) => ClientIdTemplate::GroupId,
+        (false, false, true) => ClientIdTemplate::Uuid,
+        (false, false, false) => ClientIdTemplate::None,
     }
 }

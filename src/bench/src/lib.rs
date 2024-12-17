@@ -4,8 +4,9 @@ use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::RwLock;
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, ListGroupResp,
-    ListGroupRespItem, ListPublishResp, ListSubscribeResp, ReadGroupResp, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
+    ListGroupResp, ListGroupRespItem, ListPublishResp, ListSubscribeResp, ReadGroupResp,
+    SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -15,7 +16,7 @@ mod group;
 static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::default());
 
 fn generate_id() -> String {
-    Uuid::new_v4().simple().to_string()
+    Uuid::new_v4().to_string()
 }
 
 pub struct RuntimeInstance {
@@ -47,7 +48,7 @@ pub async fn update_broker(info: BrokerUpdateReq) {
     *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
 }
 
-pub async fn create_group(req: GroupCreateUpdateReq) {
+pub async fn create_group(req: GroupCreateReq) {
     let group = Group::new(
         generate_id(),
         RUNTIME_INSTANCE.broker_info.read().await.clone(),
@@ -63,7 +64,7 @@ pub async fn list_groups() -> ListGroupResp {
         .rev()
         .map(|group| ListGroupRespItem {
             id: group.id.clone(),
-            conf: (*group.conf).clone(),
+            conf: group.conf.clone(),
         })
         .collect();
     ListGroupResp { list }
@@ -81,7 +82,7 @@ pub async fn read_group(group_id: String) -> ReadGroupResp {
         .await
 }
 
-pub async fn update_group(group_id: String, req: GroupCreateUpdateReq) {
+pub async fn update_group(group_id: String, req: GroupUpdateReq) {
     RUNTIME_INSTANCE
         .groups
         .write()

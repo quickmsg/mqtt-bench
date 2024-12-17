@@ -12,10 +12,20 @@ pub struct BrokerUpdateReq {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GroupCreateUpdateReq {
+pub struct GroupCreateReq {
     pub name: String,
+    pub client_id: String,
     pub protocol_version: ProtocolVersion,
     pub protocol: Protocol,
+    pub port: u16,
+    pub client_count: usize,
+    pub ssl_conf: Option<SslConf>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GroupUpdateReq {
+    pub name: String,
+    pub client_id: String,
     pub port: u16,
     pub client_count: usize,
     pub ssl_conf: Option<SslConf>,
@@ -53,18 +63,13 @@ pub struct ListGroupResp {
 #[derive(Serialize)]
 pub struct ListGroupRespItem {
     pub id: String,
-    pub conf: GroupCreateUpdateReq,
-    // pub name: String,
-    // pub protocol_version: ProtocolVersion,
-    // pub protocol: Protocol,
-    // pub port: u16,
-    // pub client_count: usize,
+    pub conf: GroupCreateReq,
 }
 
 #[derive(Serialize)]
 pub struct ReadGroupResp {
     pub id: String,
-    pub conf: GroupCreateUpdateReq,
+    pub conf: GroupCreateReq,
     pub status: Vec<GroupMetrics>,
 }
 

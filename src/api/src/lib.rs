@@ -6,8 +6,8 @@ use axum::{
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, ListGroupResp,
-    ListPublishResp, ListSubscribeResp, PublishCreateUpdateReq, ReadGroupResp,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
+    ListGroupResp, ListPublishResp, ListSubscribeResp, PublishCreateUpdateReq, ReadGroupResp,
     SubscribeCreateUpdateReq,
 };
 
@@ -77,7 +77,7 @@ async fn update_broker(Json(req): Json<BrokerUpdateReq>) {
     bench::update_broker(req).await;
 }
 
-async fn create_group(Json(req): Json<GroupCreateUpdateReq>) {
+async fn create_group(Json(req): Json<GroupCreateReq>) {
     bench::create_group(req).await;
 }
 
@@ -89,7 +89,7 @@ async fn read_group(Path(group_id): Path<String>) -> Json<ReadGroupResp> {
     Json(bench::read_group(group_id).await)
 }
 
-async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupCreateUpdateReq>) {
+async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupUpdateReq>) {
     bench::update_group(group_id, req).await;
 }
 

@@ -4,12 +4,9 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
-use tracing::debug;
-use types::{
-    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
-};
+use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{AtomicMetrics, ErrorManager};
+use crate::{group::ClientGroupConf, AtomicMetrics, ErrorManager};
 
 use super::{
     ssl::get_ssl_config,
@@ -20,7 +17,7 @@ use super::{
 pub struct WebsocketClientV311 {
     running: bool,
     client_conf: ClientConf,
-    group_conf: Arc<GroupCreateUpdateReq>,
+    group_conf: Arc<ClientGroupConf>,
     client: Option<AsyncClient>,
     err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
@@ -29,7 +26,7 @@ pub struct WebsocketClientV311 {
     metrics: Arc<AtomicMetrics>,
 }
 
-pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Box<dyn Client> {
+pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn Client> {
     Box::new(WebsocketClientV311 {
         running: false,
         client_conf,
@@ -76,9 +73,9 @@ impl Client for WebsocketClientV311 {
                     self.client_conf.id.clone(),
                     format!(
                         "wss://{}:{}/mqtt",
-                        self.client_conf.host, self.client_conf.port
+                        self.client_conf.host, self.group_conf.port
                     ),
-                    self.client_conf.port,
+                    self.group_conf.port,
                 );
                 let config = get_ssl_config(ssl_conf);
                 let transport =
@@ -91,16 +88,14 @@ impl Client for WebsocketClientV311 {
                     self.client_conf.id.clone(),
                     format!(
                         "ws://{}:{}/mqtt",
-                        self.client_conf.host, self.client_conf.port
+                        self.client_conf.host, self.group_conf.port
                     ),
-                    self.client_conf.port,
+                    self.group_conf.port,
                 );
                 mqtt_options.set_transport(Transport::Ws);
                 mqtt_options
             }
         };
-
-        debug!("{:?}", mqtt_options);
 
         mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
         match (&self.client_conf.username, &self.client_conf.password) {
@@ -179,8 +174,12 @@ impl Client for WebsocketClientV311 {
         }
     }
 
-    async fn update(&mut self, group_conf: Arc<GroupCreateUpdateReq>) {
-        todo!()
+    async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {
+        self.group_conf = group_conf;
+        if self.running {
+            self.stop().await;
+            self.start().await;
+        }
     }
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {

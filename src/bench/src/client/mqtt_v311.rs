@@ -5,11 +5,9 @@ use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use tracing::debug;
-use types::{
-    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
-};
+use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{AtomicMetrics, ErrorManager};
+use crate::{group::ClientGroupConf, AtomicMetrics, ErrorManager};
 
 use super::{
     ssl::get_ssl_config,
@@ -20,7 +18,7 @@ use super::{
 pub struct MqttClientV311 {
     running: bool,
     client_conf: ClientConf,
-    group_conf: Arc<GroupCreateUpdateReq>,
+    group_conf: Arc<ClientGroupConf>,
     client: Option<AsyncClient>,
     err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
@@ -29,7 +27,7 @@ pub struct MqttClientV311 {
     metrics: Arc<AtomicMetrics>,
 }
 
-pub fn new(client_conf: ClientConf, group_conf: Arc<GroupCreateUpdateReq>) -> Box<dyn Client> {
+pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn Client> {
     Box::new(MqttClientV311 {
         running: false,
         client_conf,
@@ -73,7 +71,7 @@ impl Client for MqttClientV311 {
         let mut mqtt_options = MqttOptions::new(
             self.client_conf.id.clone(),
             self.client_conf.host.clone(),
-            self.client_conf.port,
+            self.group_conf.port,
         );
 
         if let Some(ssl_conf) = &self.group_conf.ssl_conf {
@@ -151,8 +149,12 @@ impl Client for MqttClientV311 {
         }
     }
 
-    async fn update(&mut self, group_conf: Arc<GroupCreateUpdateReq>) {
-        todo!()
+    async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {
+        self.group_conf = group_conf;
+        if self.running {
+            self.stop().await;
+            self.start().await;
+        }
     }
 
     fn get_metrics(&self) -> ClientMetrics {
