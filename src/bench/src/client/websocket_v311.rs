@@ -139,11 +139,11 @@ impl Client for WebsocketClientV311 {
             }
         });
 
-        for publish in self.publishes.iter() {
+        for publish in self.publishes.iter_mut() {
             publish.start(self.client.clone().unwrap());
         }
 
-        for subscribe in self.subscribes.iter() {
+        for subscribe in self.subscribes.iter_mut() {
             subscribe.start(self.client.as_ref().unwrap()).await;
         }
     }
@@ -155,11 +155,11 @@ impl Client for WebsocketClientV311 {
             self.running = false;
         }
 
-        for publish in self.publishes.iter() {
+        for publish in self.publishes.iter_mut() {
             publish.stop();
         }
 
-        for subscribe in self.subscribes.iter() {
+        for subscribe in self.subscribes.iter_mut() {
             subscribe.stop(self.client.as_ref().unwrap()).await;
         }
 
@@ -180,7 +180,7 @@ impl Client for WebsocketClientV311 {
     }
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
-        let publish = Publish::new(id, req);
+        let mut publish = Publish::new(id, req);
         if let Some(client) = &self.client {
             publish.start(client.clone());
         }
@@ -211,7 +211,7 @@ impl Client for WebsocketClientV311 {
     }
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
-        let subscribe = Subscribe::new(id, req);
+        let mut subscribe = Subscribe::new(id, req);
         if let Some(client) = &self.client {
             subscribe.start(&client).await;
         }

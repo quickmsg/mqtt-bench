@@ -263,6 +263,7 @@ pub struct AtomicMetrics {
     pub subscribe: AtomicUsize,
     // 订阅确认
     pub sub_ack: AtomicUsize,
+    pub await_ack: AtomicUsize,
     // 取消订阅
     pub unsubscribe: AtomicUsize,
     // 连接断开
@@ -374,7 +375,10 @@ impl AtomicMetrics {
                     self.disconnect
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Outgoing::AwaitAck(_) => todo!(),
+                rumqttc::Outgoing::AwaitAck(_) => {
+                    self.await_ack
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 _ => unreachable!(),
             },
         }
