@@ -6,7 +6,7 @@ use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use tracing::debug;
 use types::{
-    GroupCreateUpdateReq, ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
+    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
 };
 
 use crate::{AtomicMetrics, ErrorManager};
@@ -235,13 +235,12 @@ impl Client for MqttClientV311 {
             .retain(|subscribe| *subscribe.id != *subscribe_id);
     }
 
-    async fn read(&self) -> ListClientRespItem {
-        ListClientRespItem {
-            client_id: self.client_conf.id.clone(),
+    async fn read(&self) -> ClientsListRespItem {
+        ClientsListRespItem {
+            client_id: todo!(),
             status: todo!(),
-            addr: format!("{}:{}", self.client_conf.host, self.client_conf.port),
-            // TODO 未启动的情况下
-            err: self.err.as_ref().unwrap().lock().await.clone(),
+            addr: todo!(),
+            err: todo!(),
         }
     }
 }

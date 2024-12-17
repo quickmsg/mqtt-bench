@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -202,13 +202,21 @@ pub enum Status {
     Updating,
 }
 
-#[derive(Serialize)]
-pub struct ListClientResp {
-    pub list: Vec<ListClientRespItem>,
+#[derive(Deserialize)]
+pub struct ClientsQueryParams {
+    pub p: usize,
+    pub l: usize,
+    // TODO status
 }
 
 #[derive(Serialize)]
-pub struct ListClientRespItem {
+pub struct ClientsListResp {
+    pub count: usize,
+    pub list: Vec<ClientsListRespItem>,
+}
+
+#[derive(Serialize)]
+pub struct ClientsListRespItem {
     pub client_id: String,
     pub status: Status,
     pub addr: String,

@@ -6,7 +6,7 @@ use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
 use tracing::debug;
 use types::{
-    GroupCreateUpdateReq, ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
+    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
 };
 
 use crate::{AtomicMetrics, ErrorManager};
@@ -251,7 +251,12 @@ impl Client for WebsocketClientV311 {
             .retain(|subscribe| *subscribe.id != *subscribe_id);
     }
 
-    async fn read(&self) -> ListClientRespItem {
-        todo!()
+    async fn read(&self) -> ClientsListRespItem {
+        ClientsListRespItem {
+            client_id: todo!(),
+            status: todo!(),
+            addr: todo!(),
+            err: todo!(),
+        }
     }
 }

@@ -9,9 +9,9 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, GroupMetrics, ListPublishResp, ListPublishRespItem,
-    ListSubscribeResp, ListSubscribeRespItem, PacketMetrics, PublishCreateUpdateReq, ReadGroupResp,
-    SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, GroupMetrics,
+    ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem, PacketMetrics,
+    PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
 };
 
 use crate::{
@@ -293,5 +293,22 @@ impl Group {
             client.delete_subscribe(&subscribe_id).await;
         }
         self.subscribes.retain(|(id, _)| **id != subscribe_id);
+    }
+
+    pub async fn list_clients(&self, query: ClientsQueryParams) -> ClientsListResp {
+        let mut list = vec![];
+        let offset = (query.p - 1) * query.l;
+        let mut i = 0;
+        for client in self.clients.read().await.iter().skip(offset) {
+            i += 1;
+            if i >= query.l {
+                break;
+            }
+            list.push(client.read().await);
+        }
+        ClientsListResp {
+            count: self.clients.read().await.len(),
+            list,
+        }
     }
 }

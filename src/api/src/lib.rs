@@ -1,13 +1,14 @@
 use axum::{
-    extract::Path,
+    extract::{Path, Query},
     routing::{get, post, put},
     Json, Router,
 };
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListPublishResp, ListSubscribeResp,
-    PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, ListGroupResp,
+    ListPublishResp, ListSubscribeResp, PublishCreateUpdateReq, ReadGroupResp,
+    SubscribeCreateUpdateReq,
 };
 
 pub async fn run() {
@@ -28,6 +29,7 @@ pub async fn run() {
                             .route("/", get(read_group).put(update_group).delete(delete_group))
                             .route("/start", put(start_group))
                             .route("/stop", put(stop_group))
+                            .route("/clients", get(list_clients))
                             .nest(
                                 "/publish",
                                 Router::new()
@@ -139,4 +141,11 @@ async fn update_subscribe(
 
 async fn delete_subscribe(Path((group_id, subscribe_id)): Path<(String, String)>) {
     bench::delete_subscribe(group_id, subscribe_id).await;
+}
+
+async fn list_clients(
+    Path(group_id): Path<String>,
+    Query(query): Query<ClientsQueryParams>,
+) -> Json<ClientsListResp> {
+    Json(bench::list_clients(group_id, query).await)
 }

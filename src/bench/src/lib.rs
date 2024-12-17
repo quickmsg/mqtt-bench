@@ -4,8 +4,8 @@ use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::RwLock;
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ListPublishResp,
-    ListSubscribeResp, ReadGroupResp, SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateUpdateReq, ListGroupResp,
+    ListGroupRespItem, ListPublishResp, ListSubscribeResp, ReadGroupResp, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -237,6 +237,18 @@ pub async fn delete_subscribe(group_id: String, subscribe_id: String) {
         .unwrap()
         .delete_subscribe(subscribe_id)
         .await;
+}
+
+pub async fn list_clients(group_id: String, query: ClientsQueryParams) -> ClientsListResp {
+    RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .list_clients(query)
+        .await
 }
 
 #[derive(Default)]

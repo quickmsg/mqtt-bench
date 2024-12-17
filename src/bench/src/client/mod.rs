@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use types::{ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 use crate::UsizeMetrics;
 
@@ -27,7 +27,7 @@ pub trait Client: Sync + Send {
     async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
     async fn delete_subscribe(&mut self, subscribe_id: &String);
 
-    async fn read(&self) -> ListClientRespItem;
+    async fn read(&self) -> ClientsListRespItem;
 }
 
 pub struct ClientConf {

@@ -8,7 +8,7 @@ use rumqttc::{
 };
 use tokio::{select, sync::watch};
 use types::{
-    GroupCreateUpdateReq, ListClientRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
+    ClientsListRespItem, GroupCreateUpdateReq, PublishCreateUpdateReq, SubscribeCreateUpdateReq,
 };
 
 use crate::{AtomicMetrics, ErrorManager};
@@ -236,7 +236,12 @@ impl Client for WebsocketClientV50 {
             .retain(|subscribe| *subscribe.id != *subscribe_id);
     }
 
-    async fn read(&self) -> ListClientRespItem {
-        todo!()
+    async fn read(&self) -> ClientsListRespItem {
+        ClientsListRespItem {
+            client_id: todo!(),
+            status: todo!(),
+            addr: todo!(),
+            err: todo!(),
+        }
     }
 }
