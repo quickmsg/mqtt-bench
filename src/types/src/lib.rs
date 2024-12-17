@@ -82,6 +82,20 @@ pub struct PublishCreateUpdateReq {
     pub v50: Option<PublishV50>,
 }
 
+#[derive(Serialize)]
+pub struct ListPublishResp {
+    pub list: Vec<ListPublishRespItem>,
+}
+
+#[derive(Serialize)]
+pub struct ListPublishRespItem {
+    pub id: String,
+    pub name: String,
+    pub topic: String,
+    pub qos: Qos,
+    pub interval: u64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublishV311 {
     // pub name: String,
@@ -104,18 +118,7 @@ pub struct PublishV50 {
     // pub payload: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ListPublishResp {
-    pub list: Vec<ListPublishRespItem>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ListPublishRespItem {
-    pub id: String,
-    pub conf: PublishCreateUpdateReq,
-}
-
-#[derive(Deserialize_repr, Serialize_repr, Debug, Clone)]
+#[derive(Deserialize_repr, Serialize_repr, Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum Qos {
     AtMostOnce = 0,

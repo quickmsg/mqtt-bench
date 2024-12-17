@@ -4,8 +4,8 @@ use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::RwLock;
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ReadGroupResp,
-    SubscribeCreateUpdateReq,
+    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListGroupRespItem, ListPublishResp,
+    ReadGroupResp, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -141,17 +141,16 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .await;
 }
 
-pub async fn list_publishes(group_id: String) {
-    // RUNTIME_INSTANCE
-    //     .groups
-    //     .read()
-    //     .await
-    //     .iter()
-    //     .find(|group| group.id == group_id)
-    //     .unwrap()
-    //     .list_publishes()
-    //     .await;
-    todo!()
+pub async fn list_publishes(group_id: String) -> ListPublishResp {
+    RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .list_publishes()
+        .await
 }
 
 pub async fn update_publish(

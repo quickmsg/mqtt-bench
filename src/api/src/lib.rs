@@ -5,8 +5,8 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use types::{
-    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, PublishCreateUpdateReq, ReadGroupResp,
-    SubscribeCreateUpdateReq,
+    BrokerUpdateReq, GroupCreateUpdateReq, ListGroupResp, ListPublishResp, PublishCreateUpdateReq,
+    ReadGroupResp, SubscribeCreateUpdateReq,
 };
 
 pub async fn run() {
@@ -100,8 +100,8 @@ async fn create_publish(Path(group_id): Path<String>, Json(req): Json<PublishCre
     bench::create_publish(group_id, req).await;
 }
 
-async fn list_publishes(Path(group_id): Path<String>) {
-    bench::list_publishes(group_id).await;
+async fn list_publishes(Path(group_id): Path<String>) -> Json<ListPublishResp> {
+    Json(bench::list_publishes(group_id).await)
 }
 
 async fn update_publish(
