@@ -5,8 +5,8 @@ edition.workspace = true
 
 [dependencies]
 types = { workspace = true }
+rumqttc = { workspace = true }
 
-rumqttc = { version = "0.24.0", features = ["websocket"] }
 tokio = { workspace = true }
 futures = { version = "0.3.31", features = ["unstable", "bilock"] }
 dashmap = "6.1.0"
