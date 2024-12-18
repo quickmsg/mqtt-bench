@@ -203,11 +203,10 @@ impl Group {
 
     pub async fn stop(&mut self) {
         match self.status {
-            Status::Starting => todo!(),
-            Status::Running => {}
             Status::Stopped => return,
-            Status::Waiting => todo!(),
-            Status::Updating => todo!(),
+            Status::Starting | Status::Running | Status::Waiting | Status::Updating => {
+                self.status = Status::Stopped;
+            }
         }
 
         for client in self.clients.write().await.iter_mut() {

@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-pub mod error;
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerUpdateReq {
     pub hosts: Vec<String>,
