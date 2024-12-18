@@ -71,7 +71,6 @@ pub struct ListGroupRespItem {
 pub struct ReadGroupResp {
     pub id: String,
     pub conf: GroupCreateReq,
-    pub status: Vec<GroupMetrics>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -135,14 +134,6 @@ pub struct ClientStatus {
     pub succeed: usize,
     pub failed: usize,
     pub status: Status,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GroupMetrics {
-    pub ts: u64,
-    pub succeed: usize,
-    pub failed: usize,
-    pub usize_metrics: UsizeMetrics,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -236,4 +227,76 @@ pub struct ClientsListRespItem {
     pub addr: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub err: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct MetricsQueryParams {
+    pub start_time: Option<u64>,
+    pub end_time: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct MetricsListResp {
+    pub list: Vec<MetricsListItem>,
+}
+
+#[derive(Serialize)]
+pub struct MetricsListItem {
+    pub ts: u64,
+    pub client: ClientMetrics,
+    pub packet: PacketMetrics,
+}
+
+#[derive(Serialize)]
+pub struct ClientMetrics {
+    pub running_cnt: usize,
+    pub stopped_cnt: usize,
+    pub error_cnt: usize,
+    pub updating_cnt: usize,
+    pub waiting_cnt: usize,
+}
+
+#[derive(Serialize)]
+pub struct PacketMetrics {
+    pub conn_ack_total: usize,
+    pub conn_ack_cnt: usize,
+
+    pub pub_ack_total: usize,
+    pub pub_ack_cnt: usize,
+
+    pub unsub_ack_total: usize,
+    pub unsub_ack_cnt: usize,
+
+    pub ping_req_total: usize,
+    pub ping_req_cnt: usize,
+
+    pub ping_resp_total: usize,
+    pub ping_resp_cnt: usize,
+
+    pub outgoing_publish_total: usize,
+    pub outgoing_publish_cnt: usize,
+
+    pub incoming_publish_total: usize,
+    pub incoming_publish_cnt: usize,
+
+    pub pub_rel_total: usize,
+    pub pub_rel_cnt: usize,
+
+    pub pub_rec_total: usize,
+    pub pub_rec_cnt: usize,
+
+    pub pub_comp_total: usize,
+    pub pub_comp_cnt: usize,
+
+    pub subscribe_total: usize,
+    pub subscribe_cnt: usize,
+
+    pub sub_ack_total: usize,
+    pub sub_ack_cnt: usize,
+
+    pub unsubscribe_total: usize,
+    pub unsubscribe_cnt: usize,
+
+    pub disconnect_total: usize,
+    pub disconnect_cnt: usize,
 }

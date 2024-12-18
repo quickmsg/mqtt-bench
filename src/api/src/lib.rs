@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
-    ListGroupResp, ListPublishResp, ListSubscribeResp, PublishCreateUpdateReq, ReadGroupResp,
-    SubscribeCreateUpdateReq,
+    ListGroupResp, ListPublishResp, ListSubscribeResp, MetricsListResp, MetricsQueryParams,
+    PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
 };
 
 pub async fn run() {
@@ -27,6 +27,7 @@ pub async fn run() {
                         "/:group_id",
                         Router::new()
                             .route("/", get(read_group).put(update_group).delete(delete_group))
+                            .route("/metrics", get(read_metrics))
                             .route("/start", put(start_group))
                             .route("/stop", put(stop_group))
                             .route("/clients", get(list_clients))
@@ -95,6 +96,13 @@ async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupUpdateR
 
 async fn delete_group(Path(group_id): Path<String>) {
     bench::delete_group(group_id).await;
+}
+
+async fn read_metrics(
+    Path(group_id): Path<String>,
+    Query(query): Query<MetricsQueryParams>,
+) -> Json<MetricsListResp> {
+    Json(bench::read_metrics(group_id, query).await)
 }
 
 async fn start_group(Path(group_id): Path<String>) {

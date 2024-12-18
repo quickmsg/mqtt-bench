@@ -9,9 +9,10 @@ use std::{
 use futures::lock::BiLock;
 use tokio::{select, sync::RwLock, time};
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupMetrics,
+    BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
-    PublishCreateUpdateReq, ReadGroupResp, SslConf, SubscribeCreateUpdateReq,
+    MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PublishCreateUpdateReq,
+    ReadGroupResp, SslConf, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -28,7 +29,7 @@ pub struct Group {
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
     client_connected_count: Arc<AtomicUsize>,
 
-    status: Option<BiLock<Vec<GroupMetrics>>>,
+    history_metrics: Option<BiLock<Vec<(u64, UsizeMetrics)>>>,
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
@@ -70,7 +71,7 @@ impl Group {
             conf: req,
             running: false,
             clients: Arc::new(RwLock::new(clients)),
-            status: None,
+            history_metrics: None,
             broker_info,
             client_connected_count: Arc::new(AtomicUsize::new(0)),
             stop_signal_tx,
@@ -175,11 +176,11 @@ impl Group {
             self.running = true;
         }
 
-        let (status1, status2) = BiLock::new(Vec::new());
+        let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
         self.start_clients();
-        self.start_collect_status(status1);
+        self.start_collect_metrics(history_metrics_1);
 
-        self.status = Some(status2);
+        self.history_metrics = Some(history_metrics_2);
     }
 
     pub async fn stop(&mut self) {
@@ -196,7 +197,7 @@ impl Group {
         self.stop_signal_tx.send(()).unwrap();
     }
 
-    fn start_collect_status(&mut self, status: BiLock<Vec<GroupMetrics>>) {
+    fn start_collect_metrics(&mut self, history_metrics: BiLock<Vec<(u64, UsizeMetrics)>>) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(1));
         // let clients = self.clients.clone();
@@ -209,52 +210,23 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_status(&metrics, &status).await;
+                        Self::collect_metrics(&metrics, &history_metrics).await;
                     }
                 }
             }
         });
     }
 
-    async fn collect_status(
+    async fn collect_metrics(
         metrics: &Arc<AtomicMetrics>,
-        group_status: &BiLock<Vec<GroupMetrics>>,
+        history_metrics: &BiLock<Vec<(u64, UsizeMetrics)>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        // let mut succeed = 0;
-        // let mut failed = 0;
-        // let mut packet_metrics = PacketMetrics::default();
-        // {
-        //     let clients_guard = clients.read().await;
-        //     clients_guard.iter().for_each(|client| {
-        //         let client_metrics = client.get_metrics();
-        //         if client_metrics.success {
-        //             succeed += 1;
-        //         } else {
-        //             failed += 1;
-        //         }
-        //         packet_metrics.conn_ack += client_metrics.usize_metrics.conn_ack;
-        //         packet_metrics.pub_ack += client_metrics.usize_metrics.pub_ack;
-        //         packet_metrics.unsub_ack += client_metrics.usize_metrics.unsub_ack;
-        //         packet_metrics.ping_req += client_metrics.usize_metrics.ping_req;
-        //         packet_metrics.ping_resp += client_metrics.usize_metrics.ping_resp;
-        //         packet_metrics.publish += client_metrics.usize_metrics.incoming_publish;
-        //         packet_metrics.subscribe += client_metrics.usize_metrics.subscribe;
-        //         packet_metrics.unsubscribe += client_metrics.usize_metrics.unsubscribe;
-        //         packet_metrics.disconnect += client_metrics.usize_metrics.disconnect;
-        //     });
-        // }
-
         let usize_metrics = metrics.take_metrics();
-        group_status.lock().await.push(GroupMetrics {
-            ts,
-            succeed: 0,
-            failed: 0,
-            usize_metrics,
-        });
+        history_metrics.lock().await.push((ts, usize_metrics));
     }
 
     fn start_clients(&mut self) {
@@ -291,7 +263,6 @@ impl Group {
         ReadGroupResp {
             id: self.id.clone(),
             conf: self.conf.clone(),
-            status: self.status.as_ref().unwrap().lock().await.clone(),
         }
     }
 
@@ -494,6 +465,90 @@ impl Group {
         ClientsListResp {
             count: self.clients.read().await.len(),
             list,
+        }
+    }
+
+    pub async fn read_metrics(&self, query: MetricsQueryParams) -> MetricsListResp {
+        match (query.start_time, query.end_time) {
+            (None, None) => {
+                let mut list = vec![];
+                let mut conn_ack_total = 0;
+                let mut pub_ack_total = 0;
+                let mut unsub_ack_total = 0;
+                let mut ping_req_total = 0;
+                let mut ping_resp_total = 0;
+                let mut outgoing_publish_total = 0;
+                let mut incoming_publish_total = 0;
+                let mut pub_rel_total = 0;
+                let mut pub_rec_total = 0;
+                let mut pub_comp_total = 0;
+                let mut subscribe_total = 0;
+                let mut sub_ack_total = 0;
+                let mut unsubscribe_total = 0;
+                let mut disconnect_total = 0;
+                for metric in self.history_metrics.as_ref().unwrap().lock().await.iter() {
+                    conn_ack_total += metric.1.conn_ack;
+                    pub_ack_total += metric.1.pub_ack;
+                    unsub_ack_total += metric.1.unsub_ack;
+                    ping_req_total += metric.1.ping_req;
+                    ping_resp_total += metric.1.ping_resp;
+                    outgoing_publish_total += metric.1.outgoing_publish;
+                    incoming_publish_total += metric.1.incoming_publish;
+                    pub_rel_total += metric.1.pub_rel;
+                    pub_rec_total += metric.1.pub_rec;
+                    pub_comp_total += metric.1.pub_comp;
+                    subscribe_total += metric.1.subscribe;
+                    sub_ack_total += metric.1.sub_ack;
+                    unsubscribe_total += metric.1.unsubscribe;
+                    disconnect_total += metric.1.disconnect;
+
+                    list.push(MetricsListItem {
+                        ts: metric.0,
+                        // TODO
+                        client: ClientMetrics {
+                            running_cnt: 0,
+                            stopped_cnt: 0,
+                            error_cnt: 0,
+                            updating_cnt: 0,
+                            waiting_cnt: 0,
+                        },
+                        packet: PacketMetrics {
+                            conn_ack_total,
+                            conn_ack_cnt: metric.1.conn_ack,
+                            pub_ack_total,
+                            pub_ack_cnt: metric.1.pub_ack,
+                            unsub_ack_total,
+                            unsub_ack_cnt: metric.1.unsub_ack,
+                            ping_req_total,
+                            ping_req_cnt: metric.1.ping_req,
+                            ping_resp_total,
+                            ping_resp_cnt: metric.1.ping_resp,
+                            outgoing_publish_total,
+                            outgoing_publish_cnt: metric.1.outgoing_publish,
+                            incoming_publish_total,
+                            incoming_publish_cnt: metric.1.incoming_publish,
+                            pub_rel_total,
+                            pub_rel_cnt: metric.1.pub_rel,
+                            pub_rec_total,
+                            pub_rec_cnt: metric.1.pub_rec,
+                            pub_comp_total,
+                            pub_comp_cnt: metric.1.pub_comp,
+                            subscribe_total,
+                            subscribe_cnt: metric.1.subscribe,
+                            sub_ack_total,
+                            sub_ack_cnt: metric.1.sub_ack,
+                            unsubscribe_total,
+                            unsubscribe_cnt: metric.1.unsubscribe,
+                            disconnect_total,
+                            disconnect_cnt: metric.1.disconnect,
+                        },
+                    });
+                }
+                MetricsListResp { list }
+            }
+            (None, Some(_)) => todo!(),
+            (Some(_), None) => todo!(),
+            (Some(_), Some(_)) => todo!(),
         }
     }
 }

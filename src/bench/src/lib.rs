@@ -5,8 +5,8 @@ use group::Group;
 use tokio::sync::RwLock;
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
-    ListGroupResp, ListGroupRespItem, ListPublishResp, ListSubscribeResp, ReadGroupResp,
-    SubscribeCreateUpdateReq, UsizeMetrics,
+    ListGroupResp, ListGroupRespItem, ListPublishResp, ListSubscribeResp, MetricsListResp,
+    MetricsQueryParams, ReadGroupResp, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -252,6 +252,18 @@ pub async fn list_clients(group_id: String, query: ClientsQueryParams) -> Client
         .await
 }
 
+pub async fn read_metrics(group_id: String, query: MetricsQueryParams) -> MetricsListResp {
+    RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .find(|group| group.id == group_id)
+        .unwrap()
+        .read_metrics(query)
+        .await
+}
+
 #[derive(Default)]
 pub struct AtomicMetrics {
     // 连接确认
@@ -283,8 +295,6 @@ pub struct AtomicMetrics {
     pub disconnect: AtomicUsize,
 }
 
-
-
 impl AtomicMetrics {
     pub fn handle_v311_event(&self, event: rumqttc::Event) {
         match event {
@@ -307,12 +317,18 @@ impl AtomicMetrics {
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 rumqttc::Packet::Connect(connect) => todo!(),
-                rumqttc::Packet::Publish(publish) => todo!(),
+                rumqttc::Packet::Publish(_) => {
+                    self.incoming_publish
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Packet::PubRec(_) => {
                     self.pub_rec
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Packet::PubRel(pub_rel) => todo!(),
+                rumqttc::Packet::PubRel(_) => {
+                    self.pub_rel
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Packet::PubComp(_) => {
                     self.pub_comp
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -344,7 +360,10 @@ impl AtomicMetrics {
                     self.pub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Outgoing::PubRec(_) => todo!(),
+                rumqttc::Outgoing::PubRec(_) => {
+                    self.pub_rec
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 rumqttc::Outgoing::PubRel(_) => {
                     self.pub_rel
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
