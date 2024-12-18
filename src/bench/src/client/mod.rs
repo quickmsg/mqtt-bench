@@ -38,6 +38,7 @@ pub struct ClientConf {
     pub keep_alive: u64,
     pub username: Option<String>,
     pub password: Option<String>,
+    pub local_ip: Option<String>,
 }
 
 pub struct ClientMetrics {

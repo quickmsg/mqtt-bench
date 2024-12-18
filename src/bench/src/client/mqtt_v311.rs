@@ -97,6 +97,14 @@ impl Client for MqttClientV311 {
 
         let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+
+        match &self.client_conf.local_ip {
+            Some(local_ip) => {
+                eventloop.network_options.set_local_ip(local_ip);
+            }
+            None => {}
+        }
+
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
         let metrics = self.metrics.clone();

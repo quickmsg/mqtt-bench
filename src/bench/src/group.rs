@@ -114,6 +114,10 @@ impl Group {
                     .replace("${group_id}", group_id)
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
             };
+            let local_ip = match &group_conf.local_ips {
+                Some(ips) => Some(ips[index % ips.len()].clone()),
+                None => None,
+            };
             let client_conf = client::ClientConf {
                 index,
                 id: client_id,
@@ -121,6 +125,7 @@ impl Group {
                 keep_alive: 60,
                 username: None,
                 password: None,
+                local_ip,
             };
             match (&group_conf.protocol, &group_conf.protocol_version) {
                 (types::Protocol::Mqtt, types::ProtocolVersion::V311) => {

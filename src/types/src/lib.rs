@@ -20,6 +20,7 @@ pub struct GroupCreateReq {
     pub port: u16,
     pub client_count: usize,
     pub ssl_conf: Option<SslConf>,
+    pub local_ips: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

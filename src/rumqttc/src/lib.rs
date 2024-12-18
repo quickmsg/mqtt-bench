@@ -388,6 +388,7 @@ pub struct NetworkOptions {
     conn_timeout: u64,
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     bind_device: Option<String>,
+    local_ip: Option<String>,
 }
 
 impl NetworkOptions {
@@ -399,6 +400,7 @@ impl NetworkOptions {
             conn_timeout: 5,
             #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
             bind_device: None,
+            local_ip: None,
         }
     }
 
@@ -433,6 +435,11 @@ impl NetworkOptions {
     )]
     pub fn set_bind_device(&mut self, bind_device: &str) -> &mut Self {
         self.bind_device = Some(bind_device.to_string());
+        self
+    }
+
+    pub fn set_local_ip(&mut self, local_ip: &str) -> &mut Self {
+        self.local_ip = Some(local_ip.to_string());
         self
     }
 }

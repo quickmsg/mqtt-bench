@@ -350,6 +350,11 @@ pub(crate) async fn socket_connect(
             }
         }
 
+        if let Some(local_ip) = &network_options.local_ip {
+            let local_addr = format!("{}:0", local_ip).parse().unwrap();
+            socket.bind(local_addr)?;
+        }
+
         match socket.connect(addr).await {
             Ok(s) => return Ok(s),
             Err(e) => {
