@@ -22,9 +22,10 @@ use uuid::Uuid;
 
 use crate::{
     client::{self, Client},
-    generate_id, AtomicMetrics,
+    generate_id, ClientAtomicMetrics, PacketAtomicMetrics,
 };
 
+// 运行中不允许更新，降低复杂度
 pub struct Group {
     pub id: String,
     pub status: Status,
@@ -40,7 +41,8 @@ pub struct Group {
     publishes: Vec<(Arc<String>, Arc<PublishCreateUpdateReq>)>,
     subscribes: Vec<(Arc<String>, Arc<SubscribeCreateUpdateReq>)>,
 
-    metrics: Arc<AtomicMetrics>,
+    client_metrics: Arc<ClientAtomicMetrics>,
+    packet_metrics: Arc<PacketAtomicMetrics>,
 }
 
 pub struct ClientGroupConf {
@@ -57,7 +59,8 @@ impl Group {
             ssl_conf: req.ssl_conf.clone(),
         });
 
-        let metrics = Arc::new(AtomicMetrics::default());
+        let client_metrics = Arc::new(ClientAtomicMetrics::default());
+        let packet_metrics = Arc::new(PacketAtomicMetrics::default());
 
         let clients = Self::new_clients(
             &id,
@@ -66,7 +69,8 @@ impl Group {
             &broker_info,
             &group_conf,
             client_group_conf,
-            &metrics,
+            &client_metrics,
+            &packet_metrics,
         );
 
         let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
@@ -81,7 +85,8 @@ impl Group {
             stop_signal_tx,
             publishes: vec![],
             subscribes: vec![],
-            metrics,
+            client_metrics,
+            packet_metrics,
         }
     }
 
@@ -92,7 +97,8 @@ impl Group {
         broker_info: &Arc<BrokerUpdateReq>,
         group_conf: &GroupCreateReq,
         client_group_conf: Arc<ClientGroupConf>,
-        metrics: &Arc<AtomicMetrics>,
+        client_metrics: &Arc<ClientAtomicMetrics>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
     ) -> Vec<Box<dyn Client>> {
         let mut clients = Vec::with_capacity(client_count);
 
@@ -144,25 +150,32 @@ impl Group {
                     clients.push(client::mqtt_v311::new(
                         client_conf,
                         client_group_conf.clone(),
-                        metrics.clone(),
+                        client_metrics.clone(),
+                        packet_metrics.clone(),
                     ));
                 }
                 (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
                     clients.push(client::mqtt_v50::new(
                         client_conf,
                         client_group_conf.clone(),
+                        client_metrics.clone(),
+                        packet_metrics.clone(),
                     ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V311) => {
                     clients.push(client::websocket_v311::new(
                         client_conf,
                         client_group_conf.clone(),
+                        client_metrics.clone(),
+                        packet_metrics.clone(),
                     ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V50) => {
                     clients.push(client::websocket_v50::new(
                         client_conf,
                         client_group_conf.clone(),
+                        client_metrics.clone(),
+                        packet_metrics.clone(),
                     ));
                 }
                 (types::Protocol::Http, _) => {
@@ -207,8 +220,7 @@ impl Group {
     fn start_collect_metrics(&mut self, history_metrics: BiLock<Vec<(u64, UsizeMetrics)>>) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(1));
-        // let clients = self.clients.clone();
-        let metrics = self.metrics.clone();
+        let packet_metrics = self.packet_metrics.clone();
         tokio::spawn(async move {
             loop {
                 select! {
@@ -217,7 +229,7 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_metrics(&metrics, &history_metrics).await;
+                        Self::collect_metrics(&packet_metrics, &history_metrics).await;
                     }
                 }
             }
@@ -225,14 +237,14 @@ impl Group {
     }
 
     async fn collect_metrics(
-        metrics: &Arc<AtomicMetrics>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
         history_metrics: &BiLock<Vec<(u64, UsizeMetrics)>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let usize_metrics = metrics.take_metrics();
+        let usize_metrics = packet_metrics.take_metrics();
         history_metrics.lock().await.push((ts, usize_metrics));
     }
 
@@ -354,7 +366,8 @@ impl Group {
                     &self.broker_info,
                     &self.conf,
                     client_group_conf,
-                    &self.metrics,
+                    &self.client_metrics,
+                    &self.packet_metrics,
                 );
                 self.clients.write().await.extend(new_clients);
             }
@@ -495,8 +508,6 @@ impl Group {
     }
 
     pub async fn update_subscribe(&mut self, subscribe_id: String, req: SubscribeCreateUpdateReq) {
-        // TODO 判断是否只是更改名称或完全没更改，避免全部无用更新
-
         let conf = Arc::new(req);
         for client in self.clients.write().await.iter_mut() {
             client.update_subscribe(&subscribe_id, conf.clone()).await;

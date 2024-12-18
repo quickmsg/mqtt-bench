@@ -2,11 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::lock::BiLock;
-use rumqttc::v5;
+use rumqttc::v5::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
 use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
-use crate::{group::ClientGroupConf, AtomicMetrics, ErrorManager};
+use crate::{group::ClientGroupConf, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics};
 
 use super::{
     ssl::get_ssl_config,
@@ -18,15 +18,21 @@ pub struct MqttClientV50 {
     running: bool,
     client_conf: ClientConf,
     group_conf: Arc<ClientGroupConf>,
-    client: Option<v5::AsyncClient>,
+    client: Option<AsyncClient>,
     err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
-    metrics: Arc<AtomicMetrics>,
+    client_metrics: Arc<ClientAtomicMetrics>,
+    packet_metrics: Arc<PacketAtomicMetrics>,
 }
 
-pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn Client> {
+pub fn new(
+    client_conf: ClientConf,
+    group_conf: Arc<ClientGroupConf>,
+    client_metrics: Arc<ClientAtomicMetrics>,
+    packet_metrics: Arc<PacketAtomicMetrics>,
+) -> Box<dyn Client> {
     Box::new(MqttClientV50 {
         running: false,
         client_conf,
@@ -36,19 +42,20 @@ pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn
         publishes: vec![],
         subscribes: vec![],
         stop_signal_tx: None,
-        metrics: Arc::new(AtomicMetrics::default()),
+        client_metrics,
+        packet_metrics,
     })
 }
 
 impl MqttClientV50 {
     async fn handle_event(
-        metrics: &Arc<AtomicMetrics>,
-        res: Result<v5::Event, v5::ConnectionError>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+        res: Result<Event, ConnectionError>,
         error_manager: &mut ErrorManager,
     ) {
         match res {
             Ok(event) => {
-                metrics.handle_v50_event(event);
+                packet_metrics.handle_v50_event(event);
                 error_manager.put_ok().await;
             }
             Err(e) => {
@@ -67,7 +74,7 @@ impl Client for MqttClientV50 {
             self.running = true;
         }
 
-        let mut mqtt_options = v5::MqttOptions::new(
+        let mut mqtt_options = MqttOptions::new(
             self.client_conf.id.clone(),
             self.client_conf.host.clone(),
             self.group_conf.port,
@@ -95,11 +102,11 @@ impl Client for MqttClientV50 {
         }
 
         let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let (client, mut eventloop) = v5::AsyncClient::new(mqtt_options, 8);
+        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
-        let metrics = self.metrics.clone();
 
+        let packet_metrics = self.packet_metrics.clone();
         let (err1, err2) = BiLock::new(None);
         self.err = Some(err1);
         tokio::spawn(async move {
@@ -111,7 +118,7 @@ impl Client for MqttClientV50 {
                     }
 
                     event = eventloop.poll() => {
-                        Self::handle_event(&metrics, event, &mut error_manager).await;
+                        Self::handle_event(&packet_metrics, event, &mut error_manager).await;
                     }
                 }
             }
@@ -153,15 +160,6 @@ impl Client for MqttClientV50 {
         if self.running {
             self.stop().await;
             self.start().await;
-        }
-    }
-
-    fn get_metrics(&self) -> ClientMetrics {
-        let success = self.err.is_none();
-        let usize_metrics = self.metrics.take_metrics();
-        ClientMetrics {
-            success,
-            usize_metrics,
         }
     }
 

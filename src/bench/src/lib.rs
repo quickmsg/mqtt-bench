@@ -22,7 +22,7 @@ static TASK_QUEUE: LazyLock<TaskQueue> = LazyLock::new(|| TaskQueue::new());
 
 struct TaskQueue {
     get_task_signal_tx: mpsc::UnboundedSender<()>,
-    queue: BiLock<VecDeque<(String, Command)>>,
+    queue: BiLock<VecDeque<String>>,
 }
 
 impl TaskQueue {
@@ -36,65 +36,45 @@ impl TaskQueue {
         }
     }
 
-    pub async fn put_task(&self, task: (String, Command)) {
+    pub async fn put_task(&self, group_id: String) {
         RUNTIME_INSTANCE
             .groups
             .write()
             .await
             .iter_mut()
-            .find(|g| g.id == task.0)
+            .find(|g| g.id == group_id)
             .unwrap()
             .update_status(types::Status::Waiting)
             .await;
-        self.queue.lock().await.push_back(task);
+        self.queue.lock().await.push_back(group_id);
         self.get_task_signal_tx.send(()).unwrap();
     }
 
     pub fn start(
-        queue: BiLock<VecDeque<(String, Command)>>,
+        queue: BiLock<VecDeque<String>>,
         mut get_task_signal_rx: mpsc::UnboundedReceiver<()>,
     ) {
         let (job_finished_signal_tx, mut job_finished_signal_rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             loop {
                 get_task_signal_rx.recv().await;
-                if let Some((group_id, command)) = queue.lock().await.pop_front() {
-                    match command {
-                        Command::Start => {
-                            RUNTIME_INSTANCE
-                                .groups
-                                .write()
-                                .await
-                                .iter_mut()
-                                .find(|g| g.id == group_id)
-                                .unwrap()
-                                .start(job_finished_signal_tx.clone())
-                                .await;
-                            debug!("group {} starting", group_id);
-                        }
-                        Command::Update => {
-                            RUNTIME_INSTANCE
-                                .groups
-                                .write()
-                                .await
-                                .iter_mut()
-                                .find(|g| g.id == group_id)
-                                .unwrap()
-                                .do_update()
-                                .await;
-                        }
-                    }
+                if let Some(group_id) = queue.lock().await.pop_front() {
+                    RUNTIME_INSTANCE
+                        .groups
+                        .write()
+                        .await
+                        .iter_mut()
+                        .find(|g| g.id == group_id)
+                        .unwrap()
+                        .start(job_finished_signal_tx.clone())
+                        .await;
+                    debug!("group {} starting", group_id);
                 }
                 job_finished_signal_rx.recv().await;
                 debug!("group  finisned",);
             }
         });
     }
-}
-
-enum Command {
-    Start,
-    Update,
 }
 
 fn generate_id() -> String {
@@ -197,9 +177,7 @@ pub async fn delete_group(group_id: String) {
 
 pub async fn start_group(group_id: String) {
     debug!("start group: {}", group_id);
-    TASK_QUEUE
-        .put_task((group_id.clone(), Command::Start))
-        .await;
+    TASK_QUEUE.put_task(group_id.clone()).await;
 }
 
 pub async fn stop_group(group_id: String) {
@@ -343,7 +321,12 @@ pub async fn read_metrics(group_id: String, query: MetricsQueryParams) -> Metric
 }
 
 #[derive(Default)]
-pub struct AtomicMetrics {
+pub struct ClientAtomicMetrics {
+    pub running_cnt: AtomicUsize,
+}
+
+#[derive(Default)]
+pub struct PacketAtomicMetrics {
     // 连接确认
     pub conn_ack: AtomicUsize,
     // 发布确认
@@ -373,7 +356,7 @@ pub struct AtomicMetrics {
     pub disconnect: AtomicUsize,
 }
 
-impl AtomicMetrics {
+impl PacketAtomicMetrics {
     pub fn handle_v311_event(&self, event: rumqttc::Event) {
         match event {
             rumqttc::Event::Incoming(packet) => match packet {

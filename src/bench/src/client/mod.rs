@@ -18,7 +18,6 @@ pub trait Client: Sync + Send {
     async fn start(&mut self);
     async fn stop(&mut self);
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>);
-    fn get_metrics(&self) -> ClientMetrics;
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>);
     fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>);
