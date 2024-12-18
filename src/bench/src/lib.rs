@@ -4,8 +4,8 @@ use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::RwLock;
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
-    ListGroupResp, ListGroupRespItem, ListPublishResp, ListSubscribeResp, MetricsListResp,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupListResp,
+    GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp,
     MetricsQueryParams, ReadGroupResp, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
@@ -57,17 +57,18 @@ pub async fn create_group(req: GroupCreateReq) {
     RUNTIME_INSTANCE.groups.write().await.push(group);
 }
 
-pub async fn list_groups() -> ListGroupResp {
+pub async fn list_groups() -> GroupListResp {
     let groups = RUNTIME_INSTANCE.groups.read().await;
     let list: Vec<_> = groups
         .iter()
         .rev()
-        .map(|group| ListGroupRespItem {
+        .map(|group| GroupListRespItem {
             id: group.id.clone(),
+            status: group.status,
             conf: group.conf.clone(),
         })
         .collect();
-    ListGroupResp { list }
+    GroupListResp { list }
 }
 
 pub async fn read_group(group_id: String) -> ReadGroupResp {

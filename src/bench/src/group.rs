@@ -12,7 +12,7 @@ use types::{
     BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
     MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PublishCreateUpdateReq,
-    ReadGroupResp, SslConf, SubscribeCreateUpdateReq, UsizeMetrics,
+    ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -23,6 +23,7 @@ use crate::{
 
 pub struct Group {
     pub id: String,
+    pub status: Status,
     pub conf: GroupCreateReq,
     running: bool,
 
@@ -68,6 +69,7 @@ impl Group {
         let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             id,
+            status: Status::Stopped,
             conf: req,
             running: false,
             clients: Arc::new(RwLock::new(clients)),
@@ -173,6 +175,7 @@ impl Group {
         if self.running {
             return;
         } else {
+            self.status = Status::Running;
             self.running = true;
         }
 

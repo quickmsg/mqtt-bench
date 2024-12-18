@@ -56,14 +56,14 @@ pub struct SslConf {
 }
 
 #[derive(Serialize)]
-pub struct ListGroupResp {
-    // pub count: usize,
-    pub list: Vec<ListGroupRespItem>,
+pub struct GroupListResp {
+    pub list: Vec<GroupListRespItem>,
 }
 
 #[derive(Serialize)]
-pub struct ListGroupRespItem {
+pub struct GroupListRespItem {
     pub id: String,
+    pub status: Status,
     pub conf: GroupCreateReq,
 }
 
@@ -198,7 +198,7 @@ pub struct SubscribeV311 {}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubscribeV50 {}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Running,
