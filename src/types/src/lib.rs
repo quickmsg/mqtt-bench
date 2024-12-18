@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+pub mod error;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerUpdateReq {
     pub hosts: Vec<String>,
@@ -9,6 +11,8 @@ pub struct BrokerUpdateReq {
     pub client_id: Option<String>,
     // 每毫秒
     pub connect_interval: u64,
+    // 秒
+    pub statistics_interval: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -198,7 +202,7 @@ pub struct SubscribeV311 {}
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubscribeV50 {}
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Starting,

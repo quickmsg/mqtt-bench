@@ -195,7 +195,7 @@ impl Group {
         }
 
         let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
-        self.start_collect_metrics(history_metrics_1);
+        self.start_collect_metrics(history_metrics_1, self.broker_info.statistics_interval);
 
         self.history_metrics = Some(history_metrics_2);
         self.start_clients(job_finished_signal_tx).await;
@@ -217,9 +217,13 @@ impl Group {
         self.stop_signal_tx.send(()).unwrap();
     }
 
-    fn start_collect_metrics(&mut self, history_metrics: BiLock<Vec<(u64, UsizeMetrics)>>) {
+    fn start_collect_metrics(
+        &mut self,
+        history_metrics: BiLock<Vec<(u64, UsizeMetrics)>>,
+        statistics_interval: u64,
+    ) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
-        let mut status_interval = time::interval(time::Duration::from_secs(1));
+        let mut status_interval = time::interval(time::Duration::from_secs(statistics_interval));
         let packet_metrics = self.packet_metrics.clone();
         tokio::spawn(async move {
             loop {

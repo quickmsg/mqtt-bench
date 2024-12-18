@@ -10,3 +10,4 @@ bench = { workspace = true }
 axum = { version = "0.7.9", features = ["macros"] }
 tokio = { workspace = true }
 tower-http = { version = "0.6.1", features = ["cors", "fs", "trace"] }
+anyhow = "1.0.94"

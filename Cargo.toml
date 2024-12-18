@@ -13,3 +13,4 @@ types = { path = "src/types" }
 bench = { path = "src/bench" }
 tokio = { version = "1.42.0", features = ["full"] }
 tracing = "0.1.41"
+anyhow = "1.0.94"

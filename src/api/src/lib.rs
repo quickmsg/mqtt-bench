@@ -1,5 +1,10 @@
+use std::result;
+
+use anyhow::Error;
 use axum::{
     extract::{Path, Query},
+    http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -10,6 +15,26 @@ use types::{
     GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp, MetricsQueryParams,
     PublishCreateUpdateReq, ReadGroupResp, SubscribeCreateUpdateReq,
 };
+
+type AppResult<T, E = AppError> = result::Result<T, E>;
+
+struct AppError {
+    data: String,
+}
+
+impl From<Error> for AppError {
+    fn from(value: Error) -> Self {
+        Self {
+            data: value.to_string(),
+        }
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        (StatusCode::BAD_REQUEST, self.data).into_response()
+    }
+}
 
 pub async fn run() {
     let app = Router::new().nest(
@@ -74,8 +99,9 @@ async fn read_broker() -> Json<BrokerUpdateReq> {
     Json(bench::read_broker().await)
 }
 
-async fn update_broker(Json(req): Json<BrokerUpdateReq>) {
-    bench::update_broker(req).await;
+async fn update_broker(Json(req): Json<BrokerUpdateReq>) -> AppResult<()> {
+    bench::update_broker(req).await?;
+    Ok(())
 }
 
 async fn create_group(Json(req): Json<GroupCreateReq>) {

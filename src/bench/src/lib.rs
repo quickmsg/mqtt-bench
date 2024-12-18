@@ -3,6 +3,7 @@ use std::{
     sync::{atomic::AtomicUsize, Arc, LazyLock},
 };
 
+use anyhow::{bail, Result};
 use futures::lock::BiLock;
 use group::Group;
 use tokio::sync::{mpsc, RwLock};
@@ -10,7 +11,7 @@ use tracing::debug;
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupListResp,
     GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp,
-    MetricsQueryParams, ReadGroupResp, SubscribeCreateUpdateReq, UsizeMetrics,
+    MetricsQueryParams, ReadGroupResp, Status, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -95,6 +96,7 @@ impl Default for RuntimeInstance {
                 password: None,
                 client_id: None,
                 connect_interval: 1,
+                statistics_interval: 1,
             })),
             groups: RwLock::new(vec![]),
         }
@@ -106,8 +108,19 @@ pub async fn read_broker() -> BrokerUpdateReq {
     (*broker_info).clone()
 }
 
-pub async fn update_broker(info: BrokerUpdateReq) {
+pub async fn update_broker(info: BrokerUpdateReq) -> Result<()> {
+    if RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
+        .iter()
+        .any(|group| group.status != Status::Stopped)
+    {
+        bail!("请停止所有的组后再进行修改！");
+    }
+
     *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
+    Ok(())
 }
 
 pub async fn create_group(req: GroupCreateReq) {
