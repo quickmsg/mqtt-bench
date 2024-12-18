@@ -7,7 +7,11 @@ use std::{
 };
 
 use futures::lock::BiLock;
-use tokio::{select, sync::RwLock, time};
+use tokio::{
+    select,
+    sync::{mpsc, RwLock},
+    time,
+};
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
@@ -25,7 +29,6 @@ pub struct Group {
     pub id: String,
     pub status: Status,
     pub conf: GroupCreateReq,
-    running: bool,
 
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
     client_connected_count: Arc<AtomicUsize>,
@@ -71,7 +74,6 @@ impl Group {
             id,
             status: Status::Stopped,
             conf: req,
-            running: false,
             clients: Arc::new(RwLock::new(clients)),
             history_metrics: None,
             broker_info,
@@ -171,26 +173,28 @@ impl Group {
         clients
     }
 
-    pub async fn start(&mut self) {
-        if self.running {
-            return;
-        } else {
-            self.status = Status::Running;
-            self.running = true;
+    pub async fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+        match self.status {
+            Status::Starting | Status::Running => return,
+            Status::Stopped | Status::Waiting | Status::Updating => {
+                self.status = Status::Starting;
+            }
         }
 
         let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
-        self.start_clients();
         self.start_collect_metrics(history_metrics_1);
 
         self.history_metrics = Some(history_metrics_2);
+        self.start_clients(job_finished_signal_tx).await;
     }
 
     pub async fn stop(&mut self) {
-        if !self.running {
-            return;
-        } else {
-            self.running = false;
+        match self.status {
+            Status::Starting => todo!(),
+            Status::Running => {}
+            Status::Stopped => return,
+            Status::Waiting => todo!(),
+            Status::Updating => todo!(),
         }
 
         for client in self.clients.write().await.iter_mut() {
@@ -232,7 +236,7 @@ impl Group {
         history_metrics.lock().await.push((ts, usize_metrics));
     }
 
-    fn start_clients(&mut self) {
+    async fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
         let clients = self.clients.clone();
         let mut connect_interval = time::interval(time::Duration::from_millis(
             self.broker_info.connect_interval,
@@ -240,8 +244,8 @@ impl Group {
         let client_connected_count = self.client_connected_count.clone();
         let client_count = self.conf.client_count;
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
+        let mut index = 0;
         tokio::spawn(async move {
-            let mut index = 0;
             loop {
                 select! {
                     _ = stop_signal_rx.recv() => {
@@ -254,6 +258,7 @@ impl Group {
                             index += 1;
                             client_connected_count.store(index, Ordering::Relaxed);
                         } else {
+                            job_finished_signal_tx.send(()).unwrap();
                             break;
                         }
                     }
@@ -374,6 +379,57 @@ impl Group {
         self.conf.client_count = req.client_count;
         self.conf.port = req.port;
         self.conf.ssl_conf = req.ssl_conf.clone();
+    }
+
+    pub async fn do_update(&mut self) {
+        // let need_update_client = Self::check_update_client(&self.conf, &req);
+
+        // let client_group_conf = Arc::new(ClientGroupConf {
+        //     port: req.port,
+        //     ssl_conf: req.ssl_conf.clone(),
+        // });
+
+        // match self.conf.client_count.cmp(&req.client_count) {
+        //     std::cmp::Ordering::Less => {
+        //         let diff = req.client_count - self.conf.client_count;
+        //         if need_update_client {
+        //             for client in self.clients.write().await.iter_mut() {
+        //                 client.update(client_group_conf.clone()).await;
+        //             }
+        //         }
+
+        //         let new_clients = Self::new_clients(
+        //             &self.id,
+        //             self.conf.client_count,
+        //             diff,
+        //             &self.broker_info,
+        //             &self.conf,
+        //             client_group_conf,
+        //             &self.metrics,
+        //         );
+        //         self.clients.write().await.extend(new_clients);
+        //     }
+        //     std::cmp::Ordering::Equal => {
+        //         // TODO client_id 变更问题
+        //         if need_update_client {
+        //             for client in self.clients.write().await.iter_mut() {
+        //                 client.update(client_group_conf.clone()).await;
+        //             }
+        //         }
+        //     }
+        //     std::cmp::Ordering::Greater => {
+        //         let diff = self.conf.client_count - req.client_count;
+        //         let mut client_guards = self.clients.write().await;
+        //         for _ in 0..diff {
+        //             client_guards.pop().unwrap().stop().await;
+        //         }
+        //     }
+        // }
+
+        // self.conf.name = req.name;
+        // self.conf.client_count = req.client_count;
+        // self.conf.port = req.port;
+        // self.conf.ssl_conf = req.ssl_conf.clone();
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
@@ -553,6 +609,10 @@ impl Group {
             (Some(_), None) => todo!(),
             (Some(_), Some(_)) => todo!(),
         }
+    }
+
+    pub async fn update_status(&mut self, status: Status) {
+        self.status = status;
     }
 }
 

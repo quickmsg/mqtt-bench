@@ -1,8 +1,12 @@
-use std::sync::{atomic::AtomicUsize, Arc, LazyLock};
+use std::{
+    collections::VecDeque,
+    sync::{atomic::AtomicUsize, Arc, LazyLock},
+};
 
 use futures::lock::BiLock;
 use group::Group;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
+use tracing::debug;
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupListResp,
     GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp,
@@ -14,6 +18,84 @@ mod client;
 mod group;
 
 static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::default());
+static TASK_QUEUE: LazyLock<TaskQueue> = LazyLock::new(|| TaskQueue::new());
+
+struct TaskQueue {
+    get_task_signal_tx: mpsc::UnboundedSender<()>,
+    queue: BiLock<VecDeque<(String, Command)>>,
+}
+
+impl TaskQueue {
+    pub fn new() -> Self {
+        let (queue1, queue2) = BiLock::new(VecDeque::new());
+        let (get_task_signal_tx, get_task_signal_rx) = mpsc::unbounded_channel();
+        Self::start(queue1, get_task_signal_rx);
+        Self {
+            get_task_signal_tx,
+            queue: queue2,
+        }
+    }
+
+    pub async fn put_task(&self, task: (String, Command)) {
+        RUNTIME_INSTANCE
+            .groups
+            .write()
+            .await
+            .iter_mut()
+            .find(|g| g.id == task.0)
+            .unwrap()
+            .update_status(types::Status::Waiting)
+            .await;
+        self.queue.lock().await.push_back(task);
+        self.get_task_signal_tx.send(()).unwrap();
+    }
+
+    pub fn start(
+        queue: BiLock<VecDeque<(String, Command)>>,
+        mut get_task_signal_rx: mpsc::UnboundedReceiver<()>,
+    ) {
+        let (job_finished_signal_tx, mut job_finished_signal_rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            loop {
+                get_task_signal_rx.recv().await;
+                if let Some((group_id, command)) = queue.lock().await.pop_front() {
+                    match command {
+                        Command::Start => {
+                            RUNTIME_INSTANCE
+                                .groups
+                                .write()
+                                .await
+                                .iter_mut()
+                                .find(|g| g.id == group_id)
+                                .unwrap()
+                                .start(job_finished_signal_tx.clone())
+                                .await;
+                            debug!("group {} starting", group_id);
+                        }
+                        Command::Update => {
+                            RUNTIME_INSTANCE
+                                .groups
+                                .write()
+                                .await
+                                .iter_mut()
+                                .find(|g| g.id == group_id)
+                                .unwrap()
+                                .do_update()
+                                .await;
+                        }
+                    }
+                }
+                job_finished_signal_rx.recv().await;
+                debug!("group  finisned",);
+            }
+        });
+    }
+}
+
+enum Command {
+    Start,
+    Update,
+}
 
 fn generate_id() -> String {
     Uuid::new_v4().to_string()
@@ -114,14 +196,9 @@ pub async fn delete_group(group_id: String) {
 }
 
 pub async fn start_group(group_id: String) {
-    RUNTIME_INSTANCE
-        .groups
-        .write()
-        .await
-        .iter_mut()
-        .find(|g| g.id == group_id)
-        .unwrap()
-        .start()
+    debug!("start group: {}", group_id);
+    TASK_QUEUE
+        .put_task((group_id.clone(), Command::Start))
         .await;
 }
 
