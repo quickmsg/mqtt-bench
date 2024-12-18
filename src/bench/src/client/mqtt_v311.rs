@@ -27,7 +27,11 @@ pub struct MqttClientV311 {
     metrics: Arc<AtomicMetrics>,
 }
 
-pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn Client> {
+pub fn new(
+    client_conf: ClientConf,
+    group_conf: Arc<ClientGroupConf>,
+    metrics: Arc<AtomicMetrics>,
+) -> Box<dyn Client> {
     Box::new(MqttClientV311 {
         running: false,
         client_conf,
@@ -37,7 +41,7 @@ pub fn new(client_conf: ClientConf, group_conf: Arc<ClientGroupConf>) -> Box<dyn
         publishes: vec![],
         subscribes: vec![],
         stop_signal_tx: None,
-        metrics: Arc::new(AtomicMetrics::default()),
+        metrics,
     })
 }
 

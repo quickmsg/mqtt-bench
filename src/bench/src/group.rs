@@ -11,13 +11,13 @@ use tokio::{select, sync::RwLock, time};
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupMetrics,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
-    PacketMetrics, PublishCreateUpdateReq, ReadGroupResp, SslConf, SubscribeCreateUpdateReq,
+    PublishCreateUpdateReq, ReadGroupResp, SslConf, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
 use crate::{
     client::{self, Client},
-    generate_id,
+    generate_id, AtomicMetrics,
 };
 
 pub struct Group {
@@ -34,6 +34,8 @@ pub struct Group {
 
     publishes: Vec<(Arc<String>, Arc<PublishCreateUpdateReq>)>,
     subscribes: Vec<(Arc<String>, Arc<SubscribeCreateUpdateReq>)>,
+
+    metrics: Arc<AtomicMetrics>,
 }
 
 pub struct ClientGroupConf {
@@ -50,6 +52,8 @@ impl Group {
             ssl_conf: req.ssl_conf.clone(),
         });
 
+        let metrics = Arc::new(AtomicMetrics::default());
+
         let clients = Self::new_clients(
             &id,
             0,
@@ -57,6 +61,7 @@ impl Group {
             &broker_info,
             &group_conf,
             client_group_conf,
+            &metrics,
         );
 
         let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
@@ -71,6 +76,7 @@ impl Group {
             stop_signal_tx,
             publishes: vec![],
             subscribes: vec![],
+            metrics,
         }
     }
 
@@ -81,6 +87,7 @@ impl Group {
         broker_info: &Arc<BrokerUpdateReq>,
         group_conf: &GroupCreateReq,
         client_group_conf: Arc<ClientGroupConf>,
+        metrics: &Arc<AtomicMetrics>,
     ) -> Vec<Box<dyn Client>> {
         let mut clients = Vec::with_capacity(client_count);
 
@@ -132,6 +139,7 @@ impl Group {
                     clients.push(client::mqtt_v311::new(
                         client_conf,
                         client_group_conf.clone(),
+                        metrics.clone(),
                     ));
                 }
                 (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
@@ -191,7 +199,8 @@ impl Group {
     fn start_collect_status(&mut self, status: BiLock<Vec<GroupMetrics>>) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(1));
-        let clients = self.clients.clone();
+        // let clients = self.clients.clone();
+        let metrics = self.metrics.clone();
         tokio::spawn(async move {
             loop {
                 select! {
@@ -200,7 +209,7 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_status(&clients, &status).await;
+                        Self::collect_status(&metrics, &status).await;
                     }
                 }
             }
@@ -208,41 +217,43 @@ impl Group {
     }
 
     async fn collect_status(
-        clients: &Arc<RwLock<Vec<Box<dyn Client>>>>,
+        metrics: &Arc<AtomicMetrics>,
         group_status: &BiLock<Vec<GroupMetrics>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let mut succeed = 0;
-        let mut failed = 0;
-        let mut packet_metrics = PacketMetrics::default();
-        {
-            let clients_guard = clients.read().await;
-            clients_guard.iter().for_each(|client| {
-                let client_metrics = client.get_metrics();
-                if client_metrics.success {
-                    succeed += 1;
-                } else {
-                    failed += 1;
-                }
-                packet_metrics.conn_ack += client_metrics.usize_metrics.conn_ack;
-                packet_metrics.pub_ack += client_metrics.usize_metrics.pub_ack;
-                packet_metrics.unsub_ack += client_metrics.usize_metrics.unsub_ack;
-                packet_metrics.ping_req += client_metrics.usize_metrics.ping_req;
-                packet_metrics.ping_resp += client_metrics.usize_metrics.ping_resp;
-                packet_metrics.publish += client_metrics.usize_metrics.incoming_publish;
-                packet_metrics.subscribe += client_metrics.usize_metrics.subscribe;
-                packet_metrics.unsubscribe += client_metrics.usize_metrics.unsubscribe;
-                packet_metrics.disconnect += client_metrics.usize_metrics.disconnect;
-            });
-        }
+        // let mut succeed = 0;
+        // let mut failed = 0;
+        // let mut packet_metrics = PacketMetrics::default();
+        // {
+        //     let clients_guard = clients.read().await;
+        //     clients_guard.iter().for_each(|client| {
+        //         let client_metrics = client.get_metrics();
+        //         if client_metrics.success {
+        //             succeed += 1;
+        //         } else {
+        //             failed += 1;
+        //         }
+        //         packet_metrics.conn_ack += client_metrics.usize_metrics.conn_ack;
+        //         packet_metrics.pub_ack += client_metrics.usize_metrics.pub_ack;
+        //         packet_metrics.unsub_ack += client_metrics.usize_metrics.unsub_ack;
+        //         packet_metrics.ping_req += client_metrics.usize_metrics.ping_req;
+        //         packet_metrics.ping_resp += client_metrics.usize_metrics.ping_resp;
+        //         packet_metrics.publish += client_metrics.usize_metrics.incoming_publish;
+        //         packet_metrics.subscribe += client_metrics.usize_metrics.subscribe;
+        //         packet_metrics.unsubscribe += client_metrics.usize_metrics.unsubscribe;
+        //         packet_metrics.disconnect += client_metrics.usize_metrics.disconnect;
+        //     });
+        // }
+
+        let usize_metrics = metrics.take_metrics();
         group_status.lock().await.push(GroupMetrics {
             ts,
-            succeed,
-            failed,
-            packet_metrics,
+            succeed: 0,
+            failed: 0,
+            usize_metrics,
         });
     }
 
@@ -364,6 +375,7 @@ impl Group {
                     &self.broker_info,
                     &self.conf,
                     client_group_conf,
+                    &self.metrics,
                 );
                 self.clients.write().await.extend(new_clients);
             }

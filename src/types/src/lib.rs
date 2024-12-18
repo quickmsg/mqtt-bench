@@ -142,7 +142,37 @@ pub struct GroupMetrics {
     pub ts: u64,
     pub succeed: usize,
     pub failed: usize,
-    pub packet_metrics: PacketMetrics,
+    pub usize_metrics: UsizeMetrics,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UsizeMetrics {
+    // 连接确认
+    pub conn_ack: usize,
+    // 发布确认
+    pub pub_ack: usize,
+    // 取消订阅确认
+    pub unsub_ack: usize,
+    // ping请求
+    pub ping_req: usize,
+    // ping响应
+    pub ping_resp: usize,
+    // 发布
+    pub outgoing_publish: usize,
+
+    pub incoming_publish: usize,
+
+    pub pub_rel: usize,
+    pub pub_rec: usize,
+    pub pub_comp: usize,
+    // 订阅
+    pub subscribe: usize,
+    // 订阅确认
+    pub sub_ack: usize,
+    // 取消订阅
+    pub unsubscribe: usize,
+    // 连接断开
+    pub disconnect: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -176,28 +206,6 @@ pub struct SubscribeV311 {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubscribeV50 {}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct PacketMetrics {
-    // 连接确认
-    pub conn_ack: usize,
-    // 发布确认
-    pub pub_ack: usize,
-    // 取消订阅确认
-    pub unsub_ack: usize,
-    // ping请求
-    pub ping_req: usize,
-    // ping响应
-    pub ping_resp: usize,
-    // 发布
-    pub publish: usize,
-    // 订阅
-    pub subscribe: usize,
-    // 取消订阅
-    pub unsubscribe: usize,
-    // 连接断开
-    pub disconnect: usize,
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]

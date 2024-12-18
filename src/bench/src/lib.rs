@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use types::{
     BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq,
     ListGroupResp, ListGroupRespItem, ListPublishResp, ListSubscribeResp, ReadGroupResp,
-    SubscribeCreateUpdateReq,
+    SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -283,34 +283,7 @@ pub struct AtomicMetrics {
     pub disconnect: AtomicUsize,
 }
 
-pub struct UsizeMetrics {
-    // 连接确认
-    pub conn_ack: usize,
-    // 发布确认
-    pub pub_ack: usize,
-    // 取消订阅确认
-    pub unsub_ack: usize,
-    // ping请求
-    pub ping_req: usize,
-    // ping响应
-    pub ping_resp: usize,
-    // 发布
-    pub outgoing_publish: usize,
 
-    pub incoming_publish: usize,
-
-    pub pub_rel: usize,
-    pub pub_rec: usize,
-    pub pub_comp: usize,
-    // 订阅
-    pub subscribe: usize,
-    // 订阅确认
-    pub sub_ack: usize,
-    // 取消订阅
-    pub unsubscribe: usize,
-    // 连接断开
-    pub disconnect: usize,
-}
 
 impl AtomicMetrics {
     pub fn handle_v311_event(&self, event: rumqttc::Event) {
