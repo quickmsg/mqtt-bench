@@ -4,9 +4,11 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
-use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{ClientsListRespItem, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
 
-use crate::{group::ClientGroupConf, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics};
+use crate::{
+    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf, read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics
+};
 
 use super::{
     ssl::get_ssl_config,
@@ -15,7 +17,7 @@ use super::{
 };
 
 pub struct WebsocketClientV311 {
-    running: bool,
+    status: Status,
     client_conf: ClientConf,
     group_conf: Arc<ClientGroupConf>,
     client: Option<AsyncClient>,
@@ -34,7 +36,7 @@ pub fn new(
     packet_metrics: Arc<PacketAtomicMetrics>,
 ) -> Box<dyn Client> {
     Box::new(WebsocketClientV311 {
-        running: false,
+        status: Status::Stopped,
         client_conf,
         group_conf,
         client: None,
@@ -68,12 +70,6 @@ impl WebsocketClientV311 {
 #[async_trait]
 impl Client for WebsocketClientV311 {
     async fn start(&mut self) {
-        if self.running {
-            return;
-        } else {
-            self.running = true;
-        }
-
         let mut mqtt_options = match &&self.group_conf.ssl_conf {
             Some(ssl_conf) => {
                 let mut mqtt_options = MqttOptions::new(
@@ -151,72 +147,31 @@ impl Client for WebsocketClientV311 {
     }
 
     async fn stop(&mut self) {
-        if !self.running {
-            return;
-        } else {
-            self.running = false;
-        }
-
-        for publish in self.publishes.iter_mut() {
-            publish.stop();
-        }
-
-        for subscribe in self.subscribes.iter_mut() {
-            subscribe.stop(self.client.as_ref().unwrap()).await;
-        }
-
-        _ = self.client.as_ref().unwrap().disconnect().await;
-
-        if let Some(stop_signal_tx) = &self.stop_signal_tx {
-            stop_signal_tx.send(()).unwrap();
-        }
+        stop!(self);
     }
 
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {
-        self.group_conf = group_conf;
-        if self.running {
-            self.stop().await;
-            self.start().await;
-        }
+        update!(self, group_conf);
+    }
+
+    fn update_status(&mut self, status: Status) {
+        update_status!(self, status);
     }
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
-        let mut publish = Publish::new(id, req);
-        if let Some(client) = &self.client {
-            publish.start(client.clone());
-        }
-        self.publishes.push(publish);
+        create_publish!(self, id, req);
     }
 
     fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>) {
-        let publish = self
-            .publishes
-            .iter_mut()
-            .find(|publish| *publish.id == *id)
-            .unwrap();
-        publish.conf = req;
-        if let Some(client) = &self.client {
-            publish.stop();
-            publish.start(client.clone());
-        }
+        update_publish!(self, id, req);
     }
 
     fn delete_publish(&mut self, id: &String) {
-        let publish = self
-            .publishes
-            .iter_mut()
-            .find(|publish| *publish.id == *id)
-            .unwrap();
-        publish.stop();
-        self.publishes.retain(|publish| *publish.id != *id);
+        delete_publish!(self, id);
     }
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
-        let mut subscribe = Subscribe::new(id, req);
-        if let Some(client) = &self.client {
-            subscribe.start(&client).await;
-        }
-        self.subscribes.push(subscribe);
+        create_subscribe!(self, id, req);
     }
 
     async fn update_subscribe(
@@ -224,40 +179,14 @@ impl Client for WebsocketClientV311 {
         subscribe_id: &String,
         conf: Arc<SubscribeCreateUpdateReq>,
     ) {
-        let subscribe = self
-            .subscribes
-            .iter_mut()
-            .find(|subscribe| *subscribe.id == *subscribe_id)
-            .unwrap();
-        subscribe.conf = conf;
-        match self.client.as_ref() {
-            Some(client) => {
-                subscribe.stop(client).await;
-                subscribe.start(client).await;
-            }
-            None => return,
-        }
+        update_subscribe!(self, subscribe_id, conf);
     }
 
     async fn delete_subscribe(&mut self, subscribe_id: &String) {
-        let subscribe = self
-            .subscribes
-            .iter_mut()
-            .find(|subscribe| *subscribe.id == *subscribe_id)
-            .unwrap();
-        if let Some(client) = &self.client {
-            subscribe.stop(client).await;
-        }
-        self.subscribes
-            .retain(|subscribe| *subscribe.id != *subscribe_id);
+        delete_subscribe!(self, subscribe_id);
     }
 
     async fn read(&self) -> ClientsListRespItem {
-        ClientsListRespItem {
-            client_id: todo!(),
-            status: todo!(),
-            addr: todo!(),
-            err: todo!(),
-        }
+        read!(self)
     }
 }

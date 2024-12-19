@@ -116,8 +116,12 @@ async fn read_group(Path(group_id): Path<String>) -> Json<ReadGroupResp> {
     Json(bench::read_group(group_id).await)
 }
 
-async fn update_group(Path(group_id): Path<String>, Json(req): Json<GroupUpdateReq>) {
-    bench::update_group(group_id, req).await;
+async fn update_group(
+    Path(group_id): Path<String>,
+    Json(req): Json<GroupUpdateReq>,
+) -> AppResult<()> {
+    bench::update_group(group_id, req).await?;
+    Ok(())
 }
 
 async fn delete_group(Path(group_id): Path<String>) {
@@ -139,8 +143,12 @@ async fn stop_group(Path(group_id): Path<String>) {
     bench::stop_group(group_id).await;
 }
 
-async fn create_publish(Path(group_id): Path<String>, Json(req): Json<PublishCreateUpdateReq>) {
-    bench::create_publish(group_id, req).await;
+async fn create_publish(
+    Path(group_id): Path<String>,
+    Json(req): Json<PublishCreateUpdateReq>,
+) -> AppResult<()> {
+    bench::create_publish(group_id, req).await?;
+    Ok(())
 }
 
 async fn list_publishes(Path(group_id): Path<String>) -> Json<ListPublishResp> {
@@ -150,16 +158,22 @@ async fn list_publishes(Path(group_id): Path<String>) -> Json<ListPublishResp> {
 async fn update_publish(
     Path((group_id, publish_id)): Path<(String, String)>,
     Json(req): Json<PublishCreateUpdateReq>,
-) {
-    bench::update_publish(group_id, publish_id, req).await;
+) -> AppResult<()> {
+    bench::update_publish(group_id, publish_id, req).await?;
+    Ok(())
 }
 
-async fn delete_publish(Path((group_id, publish_id)): Path<(String, String)>) {
-    bench::delete_publish(group_id, publish_id).await;
+async fn delete_publish(Path((group_id, publish_id)): Path<(String, String)>) -> AppResult<()> {
+    bench::delete_publish(group_id, publish_id).await?;
+    Ok(())
 }
 
-async fn create_subscribe(Path(group_id): Path<String>, Json(req): Json<SubscribeCreateUpdateReq>) {
-    bench::create_subscribe(group_id, req).await;
+async fn create_subscribe(
+    Path(group_id): Path<String>,
+    Json(req): Json<SubscribeCreateUpdateReq>,
+) -> AppResult<()> {
+    bench::create_subscribe(group_id, req).await?;
+    Ok(())
 }
 
 async fn list_subscribes(Path(group_id): Path<String>) -> Json<ListSubscribeResp> {
@@ -169,12 +183,14 @@ async fn list_subscribes(Path(group_id): Path<String>) -> Json<ListSubscribeResp
 async fn update_subscribe(
     Path((group_id, subscribe_id)): Path<(String, String)>,
     Json(req): Json<SubscribeCreateUpdateReq>,
-) {
-    bench::update_subscribe(group_id, subscribe_id, req).await;
+) -> AppResult<()> {
+    bench::update_subscribe(group_id, subscribe_id, req).await?;
+    Ok(())
 }
 
-async fn delete_subscribe(Path((group_id, subscribe_id)): Path<(String, String)>) {
-    bench::delete_subscribe(group_id, subscribe_id).await;
+async fn delete_subscribe(Path((group_id, subscribe_id)): Path<(String, String)>) -> AppResult<()> {
+    bench::delete_subscribe(group_id, subscribe_id).await?;
+    Ok(())
 }
 
 async fn list_clients(

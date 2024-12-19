@@ -45,8 +45,7 @@ impl TaskQueue {
             .iter_mut()
             .find(|g| g.id == group_id)
             .unwrap()
-            .update_status(types::Status::Waiting)
-            .await;
+            .update_status(types::Status::Waiting);
         self.queue.lock().await.push_back(group_id);
         self.get_task_signal_tx.send(()).unwrap();
     }
@@ -158,7 +157,7 @@ pub async fn read_group(group_id: String) -> ReadGroupResp {
         .await
 }
 
-pub async fn update_group(group_id: String, req: GroupUpdateReq) {
+pub async fn update_group(group_id: String, req: GroupUpdateReq) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -167,7 +166,7 @@ pub async fn update_group(group_id: String, req: GroupUpdateReq) {
         .find(|group| group.id == group_id)
         .unwrap()
         .update(req)
-        .await;
+        .await
 }
 
 pub async fn delete_group(group_id: String) {
@@ -205,7 +204,7 @@ pub async fn stop_group(group_id: String) {
         .await;
 }
 
-pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq) {
+pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -214,7 +213,7 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .find(|group| group.id == group_id)
         .unwrap()
         .create_publish(req)
-        .await;
+        .await
 }
 
 pub async fn list_publishes(group_id: String) -> ListPublishResp {
@@ -233,7 +232,7 @@ pub async fn update_publish(
     group_id: String,
     publish_id: String,
     req: types::PublishCreateUpdateReq,
-) {
+) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -245,7 +244,7 @@ pub async fn update_publish(
         .await
 }
 
-pub async fn delete_publish(group_id: String, publish_id: String) {
+pub async fn delete_publish(group_id: String, publish_id: String) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -254,10 +253,10 @@ pub async fn delete_publish(group_id: String, publish_id: String) {
         .find(|group| group.id == group_id)
         .unwrap()
         .delete_publish(publish_id)
-        .await;
+        .await
 }
 
-pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
+pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -266,7 +265,7 @@ pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) {
         .find(|group| group.id == group_id)
         .unwrap()
         .create_subscribe(req)
-        .await;
+        .await
 }
 
 pub async fn list_subscribes(group_id: String) -> ListSubscribeResp {
@@ -285,7 +284,7 @@ pub async fn update_subscribe(
     group_id: String,
     subscribe_id: String,
     req: SubscribeCreateUpdateReq,
-) {
+) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -294,10 +293,10 @@ pub async fn update_subscribe(
         .find(|group| group.id == group_id)
         .unwrap()
         .update_subscribe(subscribe_id, req)
-        .await;
+        .await
 }
 
-pub async fn delete_subscribe(group_id: String, subscribe_id: String) {
+pub async fn delete_subscribe(group_id: String, subscribe_id: String) -> Result<()> {
     RUNTIME_INSTANCE
         .groups
         .write()
@@ -306,7 +305,7 @@ pub async fn delete_subscribe(group_id: String, subscribe_id: String) {
         .find(|group| group.id == group_id)
         .unwrap()
         .delete_subscribe(subscribe_id)
-        .await;
+        .await
 }
 
 pub async fn list_clients(group_id: String, query: ClientsQueryParams) -> ClientsListResp {
@@ -336,6 +335,9 @@ pub async fn read_metrics(group_id: String, query: MetricsQueryParams) -> Metric
 #[derive(Default)]
 pub struct ClientAtomicMetrics {
     pub running_cnt: AtomicUsize,
+    pub waiting_cnt: AtomicUsize,
+    pub error_cnt: AtomicUsize,
+    pub stopped_cnt: AtomicUsize,
 }
 
 #[derive(Default)]

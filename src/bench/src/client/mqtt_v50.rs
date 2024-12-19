@@ -4,18 +4,22 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::v5::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
-use types::{ClientsListRespItem, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{ClientsListRespItem, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
 
-use crate::{group::ClientGroupConf, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics};
+use crate::{
+    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
+    read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
+    ErrorManager, PacketAtomicMetrics,
+};
 
 use super::{
     ssl::get_ssl_config,
     v50::{Publish, Subscribe},
-    Client, ClientConf, ClientMetrics,
+    Client, ClientConf,
 };
 
 pub struct MqttClientV50 {
-    running: bool,
+    status: Status,
     client_conf: ClientConf,
     group_conf: Arc<ClientGroupConf>,
     client: Option<AsyncClient>,
@@ -34,7 +38,7 @@ pub fn new(
     packet_metrics: Arc<PacketAtomicMetrics>,
 ) -> Box<dyn Client> {
     Box::new(MqttClientV50 {
-        running: false,
+        status: Status::Stopped,
         client_conf,
         group_conf,
         client: None,
@@ -68,12 +72,6 @@ impl MqttClientV50 {
 #[async_trait]
 impl Client for MqttClientV50 {
     async fn start(&mut self) {
-        if self.running {
-            return;
-        } else {
-            self.running = true;
-        }
-
         let mut mqtt_options = MqttOptions::new(
             self.client_conf.id.clone(),
             self.client_conf.host.clone(),
@@ -134,72 +132,31 @@ impl Client for MqttClientV50 {
     }
 
     async fn stop(&mut self) {
-        if !self.running {
-            return;
-        } else {
-            self.running = false;
-        }
-
-        for publish in self.publishes.iter_mut() {
-            publish.stop();
-        }
-
-        for subscribe in self.subscribes.iter_mut() {
-            subscribe.stop(self.client.as_ref().unwrap()).await;
-        }
-
-        _ = self.client.as_ref().unwrap().disconnect().await;
-
-        if let Some(stop_signal_tx) = &self.stop_signal_tx {
-            stop_signal_tx.send(()).unwrap();
-        }
+        stop!(self);
     }
 
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {
-        self.group_conf = group_conf;
-        if self.running {
-            self.stop().await;
-            self.start().await;
-        }
+        update!(self, group_conf);
+    }
+
+    fn update_status(&mut self, status: Status) {
+        update_status!(self, status);
     }
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
-        let mut publish = Publish::new(id, req);
-        if let Some(client) = &self.client {
-            publish.start(client.clone());
-        }
-        self.publishes.push(publish);
+        create_publish!(self, id, req);
     }
 
     fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>) {
-        let publish = self
-            .publishes
-            .iter_mut()
-            .find(|publish| *publish.id == *id)
-            .unwrap();
-        publish.conf = req;
-        if let Some(client) = &self.client {
-            publish.stop();
-            publish.start(client.clone());
-        }
+        update_publish!(self, id, req);
     }
 
     fn delete_publish(&mut self, id: &String) {
-        let publish = self
-            .publishes
-            .iter_mut()
-            .find(|publish| *publish.id == *id)
-            .unwrap();
-        publish.stop();
-        self.publishes.retain(|publish| *publish.id != *id);
+        delete_publish!(self, id);
     }
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
-        let mut subscribe = Subscribe::new(id, req);
-        if let Some(client) = &self.client {
-            subscribe.start(&client).await;
-        }
-        self.subscribes.push(subscribe);
+        create_subscribe!(self, id, req);
     }
 
     async fn update_subscribe(
@@ -207,40 +164,14 @@ impl Client for MqttClientV50 {
         subscribe_id: &String,
         conf: Arc<SubscribeCreateUpdateReq>,
     ) {
-        let subscribe = self
-            .subscribes
-            .iter_mut()
-            .find(|subscribe| *subscribe.id == *subscribe_id)
-            .unwrap();
-        subscribe.conf = conf;
-        match self.client.as_ref() {
-            Some(client) => {
-                subscribe.stop(client).await;
-                subscribe.start(client).await;
-            }
-            None => return,
-        }
+        update_subscribe!(self, subscribe_id, conf);
     }
 
     async fn delete_subscribe(&mut self, subscribe_id: &String) {
-        let subscribe = self
-            .subscribes
-            .iter_mut()
-            .find(|subscribe| *subscribe.id == *subscribe_id)
-            .unwrap();
-        if let Some(client) = &self.client {
-            subscribe.stop(client).await;
-        }
-        self.subscribes
-            .retain(|subscribe| *subscribe.id != *subscribe_id);
+        delete_subscribe!(self, subscribe_id);
     }
 
-    async fn read(&self) -> ClientsListRespItem {
-        ClientsListRespItem {
-            client_id: todo!(),
-            status: todo!(),
-            addr: todo!(),
-            err: todo!(),
-        }
+    async fn read(&self) -> types::ClientsListRespItem {
+        read!(self)
     }
 }

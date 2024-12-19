@@ -6,6 +6,7 @@ use std::{
     time::SystemTime,
 };
 
+use anyhow::{bail, Result};
 use futures::lock::BiLock;
 use tokio::{
     select,
@@ -345,7 +346,9 @@ impl Group {
         }
     }
 
-    pub async fn update(&mut self, req: GroupUpdateReq) {
+    pub async fn update(&mut self, req: GroupUpdateReq) -> Result<()> {
+        self.check_stopped()?;
+
         let need_update_client = Self::check_update_client(&self.conf, &req);
 
         let client_group_conf = Arc::new(ClientGroupConf {
@@ -395,60 +398,12 @@ impl Group {
         self.conf.client_count = req.client_count;
         self.conf.port = req.port;
         self.conf.ssl_conf = req.ssl_conf.clone();
+
+        Ok(())
     }
 
-    pub async fn do_update(&mut self) {
-        // let need_update_client = Self::check_update_client(&self.conf, &req);
-
-        // let client_group_conf = Arc::new(ClientGroupConf {
-        //     port: req.port,
-        //     ssl_conf: req.ssl_conf.clone(),
-        // });
-
-        // match self.conf.client_count.cmp(&req.client_count) {
-        //     std::cmp::Ordering::Less => {
-        //         let diff = req.client_count - self.conf.client_count;
-        //         if need_update_client {
-        //             for client in self.clients.write().await.iter_mut() {
-        //                 client.update(client_group_conf.clone()).await;
-        //             }
-        //         }
-
-        //         let new_clients = Self::new_clients(
-        //             &self.id,
-        //             self.conf.client_count,
-        //             diff,
-        //             &self.broker_info,
-        //             &self.conf,
-        //             client_group_conf,
-        //             &self.metrics,
-        //         );
-        //         self.clients.write().await.extend(new_clients);
-        //     }
-        //     std::cmp::Ordering::Equal => {
-        //         // TODO client_id 变更问题
-        //         if need_update_client {
-        //             for client in self.clients.write().await.iter_mut() {
-        //                 client.update(client_group_conf.clone()).await;
-        //             }
-        //         }
-        //     }
-        //     std::cmp::Ordering::Greater => {
-        //         let diff = self.conf.client_count - req.client_count;
-        //         let mut client_guards = self.clients.write().await;
-        //         for _ in 0..diff {
-        //             client_guards.pop().unwrap().stop().await;
-        //         }
-        //     }
-        // }
-
-        // self.conf.name = req.name;
-        // self.conf.client_count = req.client_count;
-        // self.conf.port = req.port;
-        // self.conf.ssl_conf = req.ssl_conf.clone();
-    }
-
-    pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) {
+    pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) -> Result<()> {
+        self.check_stopped()?;
         let id = Arc::new(generate_id());
         let conf = Arc::new(req);
         self.clients.write().await.iter_mut().for_each(|client| {
@@ -456,6 +411,7 @@ impl Group {
         });
 
         self.publishes.push((id, conf));
+        Ok(())
     }
 
     pub async fn list_publishes(&self) -> ListPublishResp {
@@ -470,7 +426,12 @@ impl Group {
         ListPublishResp { list }
     }
 
-    pub async fn update_publish(&mut self, publish_id: String, req: PublishCreateUpdateReq) {
+    pub async fn update_publish(
+        &mut self,
+        publish_id: String,
+        req: PublishCreateUpdateReq,
+    ) -> Result<()> {
+        self.check_stopped()?;
         let conf = Arc::new(req);
         for client in self.clients.write().await.iter_mut() {
             client.update_publish(&publish_id, conf.clone());
@@ -480,16 +441,20 @@ impl Group {
             .find(|(id, _)| **id == publish_id)
             .unwrap()
             .1 = conf;
+        Ok(())
     }
 
-    pub async fn delete_publish(&mut self, publish_id: String) {
+    pub async fn delete_publish(&mut self, publish_id: String) -> Result<()> {
+        self.check_stopped()?;
         for client in self.clients.write().await.iter_mut() {
             client.delete_publish(&publish_id);
         }
         self.subscribes.retain(|(id, _)| **id != publish_id);
+        Ok(())
     }
 
-    pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) {
+    pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) -> Result<()> {
+        self.check_stopped()?;
         let id = Arc::new(generate_id());
         let conf = Arc::new(req);
         for client in self.clients.write().await.iter_mut() {
@@ -497,6 +462,7 @@ impl Group {
         }
 
         self.subscribes.push((id, conf));
+        Ok(())
     }
 
     pub async fn list_subscribes(&self) -> ListSubscribeResp {
@@ -510,18 +476,26 @@ impl Group {
         ListSubscribeResp { list }
     }
 
-    pub async fn update_subscribe(&mut self, subscribe_id: String, req: SubscribeCreateUpdateReq) {
+    pub async fn update_subscribe(
+        &mut self,
+        subscribe_id: String,
+        req: SubscribeCreateUpdateReq,
+    ) -> Result<()> {
+        self.check_stopped()?;
         let conf = Arc::new(req);
         for client in self.clients.write().await.iter_mut() {
             client.update_subscribe(&subscribe_id, conf.clone()).await;
         }
+        Ok(())
     }
 
-    pub async fn delete_subscribe(&mut self, subscribe_id: String) {
+    pub async fn delete_subscribe(&mut self, subscribe_id: String) -> Result<()> {
+        self.check_stopped()?;
         for client in self.clients.write().await.iter_mut() {
             client.delete_subscribe(&subscribe_id).await;
         }
         self.subscribes.retain(|(id, _)| **id != subscribe_id);
+        Ok(())
     }
 
     pub async fn list_clients(&self, query: ClientsQueryParams) -> ClientsListResp {
@@ -625,8 +599,15 @@ impl Group {
         }
     }
 
-    pub async fn update_status(&mut self, status: Status) {
+    pub fn update_status(&mut self, status: Status) {
         self.status = status;
+    }
+
+    fn check_stopped(&self) -> Result<()> {
+        match self.status {
+            Status::Stopped => Ok(()),
+            _ => bail!("请先停止组后再进行操作！"),
+        }
     }
 }
 
