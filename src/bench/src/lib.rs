@@ -45,7 +45,8 @@ impl TaskQueue {
             .iter_mut()
             .find(|g| g.id == group_id)
             .unwrap()
-            .update_status(types::Status::Waiting);
+            .update_status(types::Status::Waiting)
+            .await;
         self.queue.lock().await.push_back(group_id);
         self.get_task_signal_tx.send(()).unwrap();
     }
@@ -66,12 +67,20 @@ impl TaskQueue {
                         .iter_mut()
                         .find(|g| g.id == group_id)
                         .unwrap()
-                        .start(job_finished_signal_tx.clone())
-                        .await;
+                        .start(job_finished_signal_tx.clone());
                     debug!("group {} starting", group_id);
+                    job_finished_signal_rx.recv().await;
+                    debug!("group  finisned",);
+                    RUNTIME_INSTANCE
+                        .groups
+                        .write()
+                        .await
+                        .iter_mut()
+                        .find(|g| g.id == group_id)
+                        .unwrap()
+                        .update_status(types::Status::Running)
+                        .await;
                 }
-                job_finished_signal_rx.recv().await;
-                debug!("group  finisned",);
             }
         });
     }
@@ -96,6 +105,7 @@ impl Default for RuntimeInstance {
                 client_id: None,
                 connect_interval: 1,
                 statistics_interval: 1,
+                local_ips: None,
             })),
             groups: RwLock::new(vec![]),
         }
@@ -132,8 +142,10 @@ pub async fn create_group(req: GroupCreateReq) {
 }
 
 pub async fn list_groups() -> GroupListResp {
-    let groups = RUNTIME_INSTANCE.groups.read().await;
-    let list: Vec<_> = groups
+    let list: Vec<_> = RUNTIME_INSTANCE
+        .groups
+        .read()
+        .await
         .iter()
         .rev()
         .map(|group| GroupListRespItem {
@@ -392,7 +404,6 @@ impl PacketAtomicMetrics {
                     self.ping_resp
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Packet::Connect(connect) => todo!(),
                 rumqttc::Packet::Publish(_) => {
                     self.incoming_publish
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -416,8 +427,9 @@ impl PacketAtomicMetrics {
                     self.sub_ack
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
-                rumqttc::Packet::Unsubscribe(unsubscribe) => todo!(),
+                rumqttc::Packet::Unsubscribe(_) => todo!(),
                 rumqttc::Packet::Disconnect => todo!(),
+                _ => {}
             },
             rumqttc::Event::Outgoing(outgoing) => match outgoing {
                 rumqttc::Outgoing::Publish(_) => {

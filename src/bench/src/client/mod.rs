@@ -32,7 +32,6 @@ pub trait Client: Sync + Send {
 }
 
 pub struct ClientConf {
-    pub index: usize,
     pub id: String,
     pub host: String,
     pub keep_alive: u64,

@@ -7,7 +7,9 @@ use tokio::{select, sync::watch};
 use types::{ClientsListRespItem, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
 
 use crate::{
-    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf, read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics
+    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
+    read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
+    ErrorManager, PacketAtomicMetrics,
 };
 
 use super::{
@@ -100,11 +102,8 @@ impl Client for MqttClientV311 {
         let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
 
-        match &self.client_conf.local_ip {
-            Some(local_ip) => {
-                eventloop.network_options.set_local_ip(local_ip);
-            }
-            None => {}
+        if let Some(local_ip) = &self.client_conf.local_ip {
+            eventloop.network_options.set_local_ip(local_ip);
         }
 
         self.client = Some(client);

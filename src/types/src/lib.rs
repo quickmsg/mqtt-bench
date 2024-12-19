@@ -11,6 +11,8 @@ pub struct BrokerUpdateReq {
     pub connect_interval: u64,
     // 秒
     pub statistics_interval: u64,
+
+    pub local_ips: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -22,7 +24,7 @@ pub struct GroupCreateReq {
     pub port: u16,
     pub client_count: usize,
     pub ssl_conf: Option<SslConf>,
-    pub local_ips: Option<Vec<String>>,
+    // pub local_ips: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

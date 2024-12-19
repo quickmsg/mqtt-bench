@@ -1,10 +1,4 @@
-use std::{
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::SystemTime,
-};
+use std::{sync::Arc, time::SystemTime};
 
 use anyhow::{bail, Result};
 use futures::lock::BiLock;
@@ -13,6 +7,7 @@ use tokio::{
     sync::{mpsc, RwLock},
     time,
 };
+use tracing::debug;
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
@@ -33,7 +28,6 @@ pub struct Group {
     pub conf: GroupCreateReq,
 
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
-    client_connected_count: Arc<AtomicUsize>,
 
     history_metrics: Option<BiLock<Vec<(u64, UsizeMetrics)>>>,
     broker_info: Arc<BrokerUpdateReq>,
@@ -82,7 +76,6 @@ impl Group {
             clients: Arc::new(RwLock::new(clients)),
             history_metrics: None,
             broker_info,
-            client_connected_count: Arc::new(AtomicUsize::new(0)),
             stop_signal_tx,
             publishes: vec![],
             subscribes: vec![],
@@ -133,12 +126,11 @@ impl Group {
                     .replace("${group_id}", group_id)
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
             };
-            let local_ip = match &group_conf.local_ips {
+            let local_ip = match &broker_info.local_ips {
                 Some(ips) => Some(ips[index % ips.len()].clone()),
                 None => None,
             };
             let client_conf = client::ClientConf {
-                index,
                 id: client_id,
                 host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
                 keep_alive: 60,
@@ -187,7 +179,7 @@ impl Group {
         clients
     }
 
-    pub async fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+    pub fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
         match self.status {
             Status::Starting | Status::Running => return,
             Status::Stopped | Status::Waiting | Status::Updating => {
@@ -199,7 +191,7 @@ impl Group {
         self.start_collect_metrics(history_metrics_1, self.broker_info.statistics_interval);
 
         self.history_metrics = Some(history_metrics_2);
-        self.start_clients(job_finished_signal_tx).await;
+        self.start_clients(job_finished_signal_tx);
     }
 
     pub async fn stop(&mut self) {
@@ -252,12 +244,9 @@ impl Group {
         history_metrics.lock().await.push((ts, usize_metrics));
     }
 
-    async fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+    fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
         let clients = self.clients.clone();
-        let mut connect_interval = time::interval(time::Duration::from_millis(
-            self.broker_info.connect_interval,
-        ));
-        let client_connected_count = self.client_connected_count.clone();
+        let mut connect_interval = time::interval(time::Duration::from_secs(1));
         let client_count = self.conf.client_count;
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut index = 0;
@@ -269,14 +258,23 @@ impl Group {
                     }
 
                     _ = connect_interval.tick() => {
-                        if index < client_count {
-                            clients.write().await[index].start().await;
-                            index += 1;
-                            client_connected_count.store(index, Ordering::Relaxed);
-                        } else {
-                            job_finished_signal_tx.send(()).unwrap();
-                            break;
+                        let mut clients_guard = clients.write().await;
+                        for _ in 0..1000 {
+                            if index < client_count {
+                                (*clients_guard)[index].start().await;
+                                index += 1;
+                            } else {
+                                job_finished_signal_tx.send(()).unwrap();
+                                break;
+                            }
                         }
+                        // if index < client_count {
+                        //     clients.write().await[index].start().await;
+                        //     index += 1;
+                        // } else {
+                        //     job_finished_signal_tx.send(()).unwrap();
+                        //     break;
+                        // }
                     }
                 }
             }
@@ -403,7 +401,9 @@ impl Group {
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) -> Result<()> {
+        debug!("here");
         self.check_stopped()?;
+        debug!("here");
         let id = Arc::new(generate_id());
         let conf = Arc::new(req);
         self.clients.write().await.iter_mut().for_each(|client| {
@@ -599,8 +599,20 @@ impl Group {
         }
     }
 
-    pub fn update_status(&mut self, status: Status) {
+    pub async fn update_status(&mut self, status: Status) {
         self.status = status;
+        let client_status = match status {
+            Status::Starting => Status::Waiting,
+            Status::Stopped => Status::Stopped,
+            Status::Waiting => Status::Waiting,
+            _ => {
+                return;
+            }
+        };
+
+        for client in self.clients.write().await.iter_mut() {
+            client.update_status(client_status);
+        }
     }
 
     fn check_stopped(&self) -> Result<()> {
