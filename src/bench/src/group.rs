@@ -246,7 +246,9 @@ impl Group {
 
     fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
         let clients = self.clients.clone();
-        let mut connect_interval = time::interval(time::Duration::from_secs(1));
+        let mut connect_interval = time::interval(time::Duration::from_millis(
+            self.broker_info.connect_interval,
+        ));
         let client_count = self.conf.client_count;
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut index = 0;
@@ -258,23 +260,13 @@ impl Group {
                     }
 
                     _ = connect_interval.tick() => {
-                        let mut clients_guard = clients.write().await;
-                        for _ in 0..1000 {
-                            if index < client_count {
-                                (*clients_guard)[index].start().await;
-                                index += 1;
-                            } else {
-                                job_finished_signal_tx.send(()).unwrap();
-                                break;
-                            }
+                        if index < client_count {
+                            clients.write().await[index].start().await;
+                            index += 1;
+                        } else {
+                            job_finished_signal_tx.send(()).unwrap();
+                            break;
                         }
-                        // if index < client_count {
-                        //     clients.write().await[index].start().await;
-                        //     index += 1;
-                        // } else {
-                        //     job_finished_signal_tx.send(()).unwrap();
-                        //     break;
-                        // }
                     }
                 }
             }

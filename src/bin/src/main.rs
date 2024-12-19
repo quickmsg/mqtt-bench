@@ -9,5 +9,6 @@ async fn main() {
         .with_line_number(true)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    // console_subscriber::init();
     api::run().await;
 }

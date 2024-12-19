@@ -72,6 +72,7 @@ impl MqttClientV311 {
 #[async_trait]
 impl Client for MqttClientV311 {
     async fn start(&mut self) {
+        self.update_status(Status::Running);
         let mut mqtt_options = MqttOptions::new(
             self.client_conf.id.clone(),
             self.client_conf.host.clone(),

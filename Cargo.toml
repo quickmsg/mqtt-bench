@@ -11,6 +11,7 @@ rumqttc = { path = "src/rumqttc", features = ["websocket"] }
 api = { path = "src/api" }
 types = { path = "src/types" }
 bench = { path = "src/bench" }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.42.0", features = ["full", "tracing"] }
 tracing = "0.1.41"
 anyhow = "1.0.94"
+console-subscriber = "0.4.1"
