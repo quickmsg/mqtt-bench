@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -75,6 +77,20 @@ pub struct GroupListRespItem {
 pub struct ReadGroupResp {
     pub id: String,
     pub conf: GroupCreateReq,
+}
+
+#[derive(Debug, Clone)]
+pub struct PublishConf {
+    pub name: String,
+    pub topic: String,
+    pub qos: Qos,
+    pub retain: bool,
+    // 毫秒
+    pub interval: u64,
+    pub payload: Arc<Vec<u8>>,
+
+    pub v311: Option<PublishV311>,
+    pub v50: Option<PublishV50>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

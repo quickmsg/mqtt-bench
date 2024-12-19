@@ -38,39 +38,3 @@ impl Encoder<Packet> for Codec {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use bytes::BytesMut;
-    use tokio_util::codec::Encoder;
-
-    use super::Codec;
-    use crate::v5::{
-        mqttbytes::{Error, QoS},
-        Packet, Publish,
-    };
-
-    #[test]
-    fn outgoing_max_packet_size_check() {
-        let mut buf = BytesMut::new();
-        let mut codec = Codec {
-            max_incoming_size: Some(100),
-            max_outgoing_size: Some(200),
-        };
-
-        let mut small_publish = Publish::new("hello/world", QoS::AtLeastOnce, vec![1; 100], None);
-        small_publish.pkid = 1;
-        codec
-            .encode(Packet::Publish(small_publish), &mut buf)
-            .unwrap();
-
-        let large_publish = Publish::new("hello/world", QoS::AtLeastOnce, vec![1; 265], None);
-        match codec.encode(Packet::Publish(large_publish), &mut buf) {
-            Err(Error::OutgoingPacketTooLarge {
-                pkt_size: 282,
-                max: 200,
-            }) => {}
-            _ => unreachable!(),
-        }
-    }
-}

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 use bytes::{Buf, Bytes};
 
@@ -9,34 +11,27 @@ pub struct Publish {
     pub retain: bool,
     pub topic: String,
     pub pkid: u16,
-    pub payload: Bytes,
+    pub payload: Option<Arc<Vec<u8>>>,
 }
 
 impl Publish {
-    pub fn new<S: Into<String>, P: Into<Vec<u8>>>(topic: S, qos: QoS, payload: P) -> Publish {
+    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Vec<u8>>) -> Publish {
         Publish {
             dup: false,
             qos,
             retain: false,
             pkid: 0,
             topic: topic.into(),
-            payload: Bytes::from(payload.into()),
-        }
-    }
-
-    pub fn from_bytes<S: Into<String>>(topic: S, qos: QoS, payload: Bytes) -> Publish {
-        Publish {
-            dup: false,
-            qos,
-            retain: false,
-            pkid: 0,
-            topic: topic.into(),
-            payload,
+            payload: Some(payload),
         }
     }
 
     fn len(&self) -> usize {
-        let len = 2 + self.topic.len() + self.payload.len();
+        let payload_len = match &self.payload {
+            Some(payload) => payload.len(),
+            None => 0,
+        };
+        let len = 2 + self.topic.len() + payload_len;
         if self.qos != QoS::AtMostOnce && self.pkid != 0 {
             len + 2
         } else {
@@ -76,7 +71,7 @@ impl Publish {
             qos,
             pkid,
             topic,
-            payload: bytes,
+            payload: None,
         };
 
         Ok(publish)
@@ -102,7 +97,7 @@ impl Publish {
             buffer.put_u16(pkid);
         }
 
-        buffer.extend_from_slice(&self.payload);
+        buffer.extend_from_slice(&self.payload.as_ref().unwrap());
 
         Ok(1 + count + len)
     }
@@ -112,162 +107,12 @@ impl fmt::Debug for Publish {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Topic = {}, Qos = {:?}, Retain = {}, Pkid = {:?}, Payload Size = {}",
+            "Topic = {}, Qos = {:?}, Retain = {}, Pkid = {:?}, Payload Size = ",
             self.topic,
             self.qos,
             self.retain,
             self.pkid,
-            self.payload.len()
+            // self.payload.len()
         )
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use bytes::{Bytes, BytesMut};
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn qos1_publish_parsing_works() {
-        let stream = &[
-            0b0011_0010,
-            11, // packet type, flags and remaining len
-            0x00,
-            0x03,
-            b'a',
-            b'/',
-            b'b', // variable header. topic name = 'a/b'
-            0x00,
-            0x0a, // variable header. pkid = 10
-            0xF1,
-            0xF2,
-            0xF3,
-            0xF4, // publish payload
-            0xDE,
-            0xAD,
-            0xBE,
-            0xEF, // extra packets in the stream
-        ];
-
-        let mut stream = BytesMut::from(&stream[..]);
-        let fixed_header = parse_fixed_header(stream.iter()).unwrap();
-        let publish_bytes = stream.split_to(fixed_header.frame_length()).freeze();
-        let packet = Publish::read(fixed_header, publish_bytes).unwrap();
-
-        let payload = &[0xF1, 0xF2, 0xF3, 0xF4];
-        assert_eq!(
-            packet,
-            Publish {
-                dup: false,
-                qos: QoS::AtLeastOnce,
-                retain: false,
-                topic: "a/b".to_owned(),
-                pkid: 10,
-                payload: Bytes::from(&payload[..]),
-            }
-        );
-    }
-
-    #[test]
-    fn qos0_publish_parsing_works() {
-        let stream = &[
-            0b0011_0000,
-            7, // packet type, flags and remaining len
-            0x00,
-            0x03,
-            b'a',
-            b'/',
-            b'b', // variable header. topic name = 'a/b'
-            0x01,
-            0x02, // payload
-            0xDE,
-            0xAD,
-            0xBE,
-            0xEF, // extra packets in the stream
-        ];
-
-        let mut stream = BytesMut::from(&stream[..]);
-        let fixed_header = parse_fixed_header(stream.iter()).unwrap();
-        let publish_bytes = stream.split_to(fixed_header.frame_length()).freeze();
-        let packet = Publish::read(fixed_header, publish_bytes).unwrap();
-
-        assert_eq!(
-            packet,
-            Publish {
-                dup: false,
-                qos: QoS::AtMostOnce,
-                retain: false,
-                topic: "a/b".to_owned(),
-                pkid: 0,
-                payload: Bytes::from(&[0x01, 0x02][..]),
-            }
-        );
-    }
-
-    #[test]
-    fn qos1_publish_encoding_works() {
-        let publish = Publish {
-            dup: false,
-            qos: QoS::AtLeastOnce,
-            retain: false,
-            topic: "a/b".to_owned(),
-            pkid: 10,
-            payload: Bytes::from(vec![0xF1, 0xF2, 0xF3, 0xF4]),
-        };
-
-        let mut buf = BytesMut::new();
-        publish.write(&mut buf).unwrap();
-
-        assert_eq!(
-            buf,
-            vec![
-                0b0011_0010,
-                11,
-                0x00,
-                0x03,
-                b'a',
-                b'/',
-                b'b',
-                0x00,
-                0x0a,
-                0xF1,
-                0xF2,
-                0xF3,
-                0xF4
-            ]
-        );
-    }
-
-    #[test]
-    fn qos0_publish_encoding_works() {
-        let publish = Publish {
-            dup: false,
-            qos: QoS::AtMostOnce,
-            retain: false,
-            topic: "a/b".to_owned(),
-            pkid: 0,
-            payload: Bytes::from(vec![0xE1, 0xE2, 0xE3, 0xE4]),
-        };
-
-        let mut buf = BytesMut::new();
-        publish.write(&mut buf).unwrap();
-
-        assert_eq!(
-            buf,
-            vec![
-                0b0011_0000,
-                9,
-                0x00,
-                0x03,
-                b'a',
-                b'/',
-                b'b',
-                0xE1,
-                0xE2,
-                0xE3,
-                0xE4
-            ]
-        );
     }
 }

@@ -7,10 +7,12 @@ use rumqttc::{
     Transport,
 };
 use tokio::{select, sync::watch};
-use types::{ClientsListRespItem, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
+use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
-    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf, read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics, ErrorManager, PacketAtomicMetrics
+    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
+    read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
+    ErrorManager, PacketAtomicMetrics,
 };
 
 use super::{
@@ -147,11 +149,11 @@ impl Client for WebsocketClientV50 {
         update!(self, group_conf);
     }
 
-    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>) {
+    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
         create_publish!(self, id, req);
     }
 
-    fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>) {
+    fn update_publish(&mut self, id: &String, req: Arc<PublishConf>) {
         update_publish!(self, id, req);
     }
 

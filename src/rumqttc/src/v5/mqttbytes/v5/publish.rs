@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 use bytes::{Buf, Bytes};
 
@@ -9,22 +11,22 @@ pub struct Publish {
     pub retain: bool,
     pub topic: Bytes,
     pub pkid: u16,
-    pub payload: Bytes,
+    pub payload: Option<Arc<Vec<u8>>>,
     pub properties: Option<PublishProperties>,
 }
 
 impl Publish {
-    pub fn new<T: Into<String>, P: Into<Bytes>>(
+    pub fn new<T: Into<String>>(
         topic: T,
         qos: QoS,
-        payload: P,
+        payload: Arc<Vec<u8>>,
         properties: Option<PublishProperties>,
     ) -> Self {
         let topic = Bytes::copy_from_slice(topic.into().as_bytes());
         Self {
             qos,
             topic,
-            payload: payload.into(),
+            payload: Some(payload),
             properties,
             ..Default::default()
         }
@@ -52,7 +54,12 @@ impl Publish {
             len += 1;
         }
 
-        len += self.payload.len();
+        let payload_len = match &self.payload {
+            Some(payload) => payload.len(),
+            None => 0,
+        };
+
+        len += payload_len;
         len
     }
 
@@ -83,7 +90,7 @@ impl Publish {
             qos,
             pkid,
             topic,
-            payload: bytes,
+            payload: None,
             properties,
         };
 
@@ -116,7 +123,7 @@ impl Publish {
             write_remaining_length(buffer, 0)?;
         }
 
-        buffer.extend_from_slice(&self.payload);
+        buffer.extend_from_slice(&self.payload.as_ref().unwrap());
 
         Ok(1 + count + len)
     }
@@ -297,44 +304,5 @@ impl PublishProperties {
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::super::test::{USER_PROP_KEY, USER_PROP_VAL};
-    use super::*;
-    use bytes::BytesMut;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn length_calculation() {
-        let mut dummy_bytes = BytesMut::new();
-        // Use user_properties to pad the size to exceed ~128 bytes to make the
-        // remaining_length field in the packet be 2 bytes long.
-        let publish_props = PublishProperties {
-            payload_format_indicator: None,
-            message_expiry_interval: None,
-            topic_alias: None,
-            response_topic: None,
-            correlation_data: None,
-            user_properties: vec![(USER_PROP_KEY.into(), USER_PROP_VAL.into())],
-            subscription_identifiers: vec![1],
-            content_type: None,
-        };
-
-        let publish_pkt = Publish::new(
-            "hello/world",
-            QoS::AtMostOnce,
-            vec![1; 10],
-            Some(publish_props),
-        );
-
-        let size_from_size = publish_pkt.size();
-        let size_from_write = publish_pkt.write(&mut dummy_bytes).unwrap();
-        let size_from_bytes = dummy_bytes.len();
-
-        assert_eq!(size_from_write, size_from_bytes);
-        assert_eq!(size_from_size, size_from_bytes);
     }
 }

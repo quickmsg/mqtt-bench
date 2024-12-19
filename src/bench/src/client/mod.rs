@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use types::{ClientsListRespItem, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
+use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::group::ClientGroupConf;
 
@@ -20,8 +20,8 @@ pub trait Client: Sync + Send {
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>);
     fn update_status(&mut self, status: Status);
 
-    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishCreateUpdateReq>);
-    fn update_publish(&mut self, id: &String, req: Arc<PublishCreateUpdateReq>);
+    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>);
+    fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
     fn delete_publish(&mut self, id: &String);
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);

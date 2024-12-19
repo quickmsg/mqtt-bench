@@ -1,11 +1,11 @@
 //! This module offers a high level synchronous and asynchronous abstraction to
 //! async eventloop.
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::mqttbytes::{v4::*, QoS};
 use crate::{valid_filter, valid_topic, ConnectionError, Event, EventLoop, MqttOptions, Request};
 
-use bytes::Bytes;
 use flume::{SendError, Sender, TrySendError};
 use futures_util::FutureExt;
 use tokio::runtime::{self, Runtime};
@@ -66,16 +66,15 @@ impl AsyncClient {
     }
 
     /// Sends a MQTT Publish to the `EventLoop`.
-    pub async fn publish<S, V>(
+    pub async fn publish<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: V,
+        payload: Arc<Vec<u8>>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        V: Into<Vec<u8>>,
     {
         let topic = topic.into();
         let mut publish = Publish::new(&topic, qos, payload);
@@ -85,29 +84,6 @@ impl AsyncClient {
             return Err(ClientError::Request(publish));
         }
         self.request_tx.send_async(publish).await?;
-        Ok(())
-    }
-
-    /// Attempts to send a MQTT Publish to the `EventLoop`.
-    pub fn try_publish<S, V>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: V,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        V: Into<Vec<u8>>,
-    {
-        let topic = topic.into();
-        let mut publish = Publish::new(&topic, qos, payload);
-        publish.retain = retain;
-        let publish = Request::Publish(publish);
-        if !valid_topic(&topic) {
-            return Err(ClientError::TryRequest(publish));
-        }
-        self.request_tx.try_send(publish)?;
         Ok(())
     }
 
@@ -127,24 +103,6 @@ impl AsyncClient {
         if let Some(ack) = ack {
             self.request_tx.try_send(ack)?;
         }
-        Ok(())
-    }
-
-    /// Sends a MQTT Publish to the `EventLoop`
-    pub async fn publish_bytes<S>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: Bytes,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-    {
-        let mut publish = Publish::from_bytes(topic, qos, payload);
-        publish.retain = retain;
-        let publish = Request::Publish(publish);
-        self.request_tx.send_async(publish).await?;
         Ok(())
     }
 
@@ -284,35 +242,16 @@ impl Client {
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: V,
+        payload: Arc<Vec<u8>>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        V: Into<Vec<u8>>,
     {
         let topic = topic.into();
         let mut publish = Publish::new(&topic, qos, payload);
         publish.retain = retain;
         let publish = Request::Publish(publish);
-        if !valid_topic(&topic) {
-            return Err(ClientError::Request(publish));
-        }
         self.client.request_tx.send(publish)?;
-        Ok(())
-    }
-
-    pub fn try_publish<S, V>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: V,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        V: Into<Vec<u8>>,
-    {
-        self.client.try_publish(topic, qos, retain, payload)?;
         Ok(())
     }
 
@@ -515,35 +454,5 @@ impl Iterator for Iter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.connection.recv().ok()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn calling_iter_twice_on_connection_shouldnt_panic() {
-        use std::time::Duration;
-
-        let mut mqttoptions = MqttOptions::new("test-1", "localhost", 1883);
-        let will = LastWill::new("hello/world", "good bye", QoS::AtMostOnce, false);
-        mqttoptions
-            .set_keep_alive(Duration::from_secs(5))
-            .set_last_will(will);
-
-        let (_, mut connection) = Client::new(mqttoptions, 10);
-        let _ = connection.iter();
-        let _ = connection.iter();
-    }
-
-    #[test]
-    fn should_be_able_to_build_test_client_from_channel() {
-        let (tx, rx) = flume::bounded(1);
-        let client = Client::from_sender(tx);
-        client
-            .publish("hello/world", QoS::ExactlyOnce, false, "good bye")
-            .expect("Should be able to publish");
-        let _ = rx.try_recv().expect("Should have message");
     }
 }

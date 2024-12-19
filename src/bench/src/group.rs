@@ -11,8 +11,8 @@ use tracing::debug;
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
-    MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PublishCreateUpdateReq,
-    ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq, UsizeMetrics,
+    MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PublishConf,
+    PublishCreateUpdateReq, ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq, UsizeMetrics,
 };
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ pub struct Group {
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
-    publishes: Vec<(Arc<String>, Arc<PublishCreateUpdateReq>)>,
+    publishes: Vec<(Arc<String>, PublishCreateUpdateReq)>,
     subscribes: Vec<(Arc<String>, Arc<SubscribeCreateUpdateReq>)>,
 
     client_metrics: Arc<ClientAtomicMetrics>,
@@ -396,13 +396,25 @@ impl Group {
         debug!("here");
         self.check_stopped()?;
         debug!("here");
+
+        let req2 = req.clone();
         let id = Arc::new(generate_id());
-        let conf = Arc::new(req);
+        let conf = Arc::new(PublishConf {
+            name: req.name,
+            topic: req.topic,
+            qos: req.qos,
+            retain: req.retain,
+            interval: req.interval,
+            payload: Arc::new(req.payload.into()),
+            v311: None,
+            v50: None,
+        });
+
         self.clients.write().await.iter_mut().for_each(|client| {
             client.create_publish(id.clone(), conf.clone());
         });
 
-        self.publishes.push((id, conf));
+        self.publishes.push((id, req2));
         Ok(())
     }
 
@@ -411,7 +423,7 @@ impl Group {
         for (id, conf) in self.publishes.iter() {
             list.push(ListPublishRespItem {
                 id: (**id).clone(),
-                conf: (**conf).clone(),
+                conf: conf.clone(),
             });
         }
 
@@ -424,7 +436,17 @@ impl Group {
         req: PublishCreateUpdateReq,
     ) -> Result<()> {
         self.check_stopped()?;
-        let conf = Arc::new(req);
+        let req2 = req.clone();
+        let conf = Arc::new(PublishConf {
+            name: req.name,
+            topic: req.topic,
+            qos: req.qos,
+            retain: req.retain,
+            interval: req.interval,
+            payload: Arc::new(req.payload.into()),
+            v311: None,
+            v50: None,
+        });
         for client in self.clients.write().await.iter_mut() {
             client.update_publish(&publish_id, conf.clone());
         }
@@ -432,7 +454,7 @@ impl Group {
             .iter_mut()
             .find(|(id, _)| **id == publish_id)
             .unwrap()
-            .1 = conf;
+            .1 = req2;
         Ok(())
     }
 

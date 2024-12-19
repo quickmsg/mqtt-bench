@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use rumqttc::AsyncClient;
 use tokio::{select, sync::watch};
 use tracing::warn;
-use types::{PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{PublishConf, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
 
 fn get_qos(qos: &types::Qos) -> rumqttc::QoS {
     match qos {
@@ -17,12 +17,12 @@ fn get_qos(qos: &types::Qos) -> rumqttc::QoS {
 pub struct Publish {
     running: bool,
     pub id: Arc<String>,
-    pub conf: Arc<PublishCreateUpdateReq>,
+    pub conf: Arc<PublishConf>,
     stop_signal_tx: watch::Sender<()>,
 }
 
 impl Publish {
-    pub fn new(id: Arc<String>, conf: Arc<PublishCreateUpdateReq>) -> Self {
+    pub fn new(id: Arc<String>, conf: Arc<PublishConf>) -> Self {
         let (stop_signal_tx, _) = watch::channel(());
         Self {
             running: false,

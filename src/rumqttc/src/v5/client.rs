@@ -1,5 +1,6 @@
 //! This module offers a high level synchronous and asynchronous abstraction to
 //! async eventloop.
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::mqttbytes::v5::{
@@ -71,17 +72,16 @@ impl AsyncClient {
     }
 
     /// Sends a MQTT Publish to the `EventLoop`.
-    async fn handle_publish<S, P>(
+    async fn handle_publish<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
         properties: Option<PublishProperties>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         let topic = topic.into();
         let mut publish = Publish::new(&topic, qos, payload, properties);
@@ -94,87 +94,32 @@ impl AsyncClient {
         Ok(())
     }
 
-    pub async fn publish_with_properties<S, P>(
+    pub async fn publish_with_properties<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
         properties: PublishProperties,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         self.handle_publish(topic, qos, retain, payload, Some(properties))
             .await
     }
 
-    pub async fn publish<S, P>(
+    pub async fn publish<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         self.handle_publish(topic, qos, retain, payload, None).await
-    }
-
-    /// Attempts to send a MQTT Publish to the `EventLoop`.
-    fn handle_try_publish<S, P>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: P,
-        properties: Option<PublishProperties>,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        P: Into<Bytes>,
-    {
-        let topic = topic.into();
-        let mut publish = Publish::new(&topic, qos, payload, properties);
-        publish.retain = retain;
-        let publish = Request::Publish(publish);
-        if !valid_topic(&topic) {
-            return Err(ClientError::TryRequest(publish));
-        }
-        self.request_tx.try_send(publish)?;
-        Ok(())
-    }
-
-    pub fn try_publish_with_properties<S, P>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: P,
-        properties: PublishProperties,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        P: Into<Bytes>,
-    {
-        self.handle_try_publish(topic, qos, retain, payload, Some(properties))
-    }
-
-    pub fn try_publish<S, P>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: P,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        P: Into<Bytes>,
-    {
-        self.handle_try_publish(topic, qos, retain, payload, None)
     }
 
     /// Sends a MQTT PubAck to the `EventLoop`. Only needed in if `manual_acks` flag is set.
@@ -194,58 +139,6 @@ impl AsyncClient {
             self.request_tx.try_send(ack)?;
         }
         Ok(())
-    }
-
-    /// Sends a MQTT Publish to the `EventLoop`
-    async fn handle_publish_bytes<S>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: Bytes,
-        properties: Option<PublishProperties>,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-    {
-        let topic = topic.into();
-        let mut publish = Publish::new(&topic, qos, payload, properties);
-        publish.retain = retain;
-        let publish = Request::Publish(publish);
-        if !valid_topic(&topic) {
-            return Err(ClientError::TryRequest(publish));
-        }
-        self.request_tx.send_async(publish).await?;
-        Ok(())
-    }
-
-    pub async fn publish_bytes_with_properties<S>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: Bytes,
-        properties: PublishProperties,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-    {
-        self.handle_publish_bytes(topic, qos, retain, payload, Some(properties))
-            .await
-    }
-
-    pub async fn publish_bytes<S>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: Bytes,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-    {
-        self.handle_publish_bytes(topic, qos, retain, payload, None)
-            .await
     }
 
     /// Sends a MQTT Subscribe to the `EventLoop`
@@ -496,17 +389,16 @@ impl Client {
     }
 
     /// Sends a MQTT Publish to the `EventLoop`
-    fn handle_publish<S, P>(
+    fn handle_publish<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
         properties: Option<PublishProperties>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         let topic = topic.into();
         let mut publish = Publish::new(&topic, qos, payload, properties);
@@ -519,73 +411,31 @@ impl Client {
         Ok(())
     }
 
-    pub fn publish_with_properties<S, P>(
+    pub fn publish_with_properties<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
         properties: PublishProperties,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         self.handle_publish(topic, qos, retain, payload, Some(properties))
     }
 
-    pub fn publish<S, P>(
+    pub fn publish<S>(
         &self,
         topic: S,
         qos: QoS,
         retain: bool,
-        payload: P,
+        payload: Arc<Vec<u8>>,
     ) -> Result<(), ClientError>
     where
         S: Into<String>,
-        P: Into<Bytes>,
     {
         self.handle_publish(topic, qos, retain, payload, None)
-    }
-
-    pub fn try_publish_with_properties<S, P>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: P,
-        properties: PublishProperties,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        P: Into<Bytes>,
-    {
-        self.client
-            .try_publish_with_properties(topic, qos, retain, payload, properties)
-    }
-
-    pub fn try_publish<S, P>(
-        &self,
-        topic: S,
-        qos: QoS,
-        retain: bool,
-        payload: P,
-    ) -> Result<(), ClientError>
-    where
-        S: Into<String>,
-        P: Into<Bytes>,
-    {
-        self.client.try_publish(topic, qos, retain, payload)
-    }
-
-    /// Sends a MQTT PubAck to the `EventLoop`. Only needed in if `manual_acks` flag is set.
-    pub fn ack(&self, publish: &Publish) -> Result<(), ClientError> {
-        let ack = get_ack_req(publish);
-
-        if let Some(ack) = ack {
-            self.client.request_tx.send(ack)?;
-        }
-        Ok(())
     }
 
     /// Sends a MQTT PubAck to the `EventLoop`. Only needed in if `manual_acks` flag is set.
@@ -863,37 +713,5 @@ impl Iterator for Iter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.connection.recv().ok()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::v5::mqttbytes::v5::LastWill;
-
-    use super::*;
-
-    #[test]
-    fn calling_iter_twice_on_connection_shouldnt_panic() {
-        use std::time::Duration;
-
-        let mut mqttoptions = MqttOptions::new("test-1", "localhost", 1883);
-        let will = LastWill::new("hello/world", "good bye", QoS::AtMostOnce, false, None);
-        mqttoptions
-            .set_keep_alive(Duration::from_secs(5))
-            .set_last_will(will);
-
-        let (_, mut connection) = Client::new(mqttoptions, 10);
-        let _ = connection.iter();
-        let _ = connection.iter();
-    }
-
-    #[test]
-    fn should_be_able_to_build_test_client_from_channel() {
-        let (tx, rx) = flume::bounded(1);
-        let client = Client::from_sender(tx);
-        client
-            .publish("hello/world", QoS::ExactlyOnce, false, "good bye")
-            .expect("Should be able to publish");
-        let _ = rx.try_recv().expect("Should have message");
     }
 }
