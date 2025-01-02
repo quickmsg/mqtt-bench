@@ -80,9 +80,6 @@ impl AsyncClient {
         let mut publish = Publish::new(&topic, qos, payload);
         publish.retain = retain;
         let publish = Request::Publish(publish);
-        if !valid_topic(&topic) {
-            return Err(ClientError::Request(publish));
-        }
         self.request_tx.send_async(publish).await?;
         Ok(())
     }

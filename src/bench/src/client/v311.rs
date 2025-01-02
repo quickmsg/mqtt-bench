@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use rumqttc::AsyncClient;
 use tokio::{select, sync::watch};
 use tracing::warn;
-use types::{PublishConf, PublishCreateUpdateReq, SubscribeCreateUpdateReq};
+use types::{PublishConf, SubscribeCreateUpdateReq};
 
 fn get_qos(qos: &types::Qos) -> rumqttc::QoS {
     match qos {

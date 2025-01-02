@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
-use types::{ClientsListRespItem, PublishConf, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
+use tracing::warn;
+use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
@@ -63,6 +64,7 @@ impl MqttClientV311 {
                 error_manager.put_ok().await;
             }
             Err(e) => {
+                warn!("Error: {:?}", e);
                 error_manager.put_err(e.to_string()).await;
             }
         }
@@ -78,6 +80,8 @@ impl Client for MqttClientV311 {
             self.client_conf.host.clone(),
             self.group_conf.port,
         );
+
+        mqtt_options.set_max_packet_size(100240, 100240);
 
         if let Some(ssl_conf) = &self.group_conf.ssl_conf {
             let config = get_ssl_config(ssl_conf);
