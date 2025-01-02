@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::mqttbytes::{v4::*, QoS};
-use crate::{valid_filter, valid_topic, ConnectionError, Event, EventLoop, MqttOptions, Request};
+use crate::{valid_filter, ConnectionError, Event, EventLoop, MqttOptions, Request};
 
 use flume::{SendError, Sender, TrySendError};
 use futures_util::FutureExt;

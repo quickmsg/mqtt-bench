@@ -57,15 +57,17 @@ impl MqttClientV311 {
         packet_metrics: &Arc<PacketAtomicMetrics>,
         res: Result<Event, ConnectionError>,
         error_manager: &mut ErrorManager,
-    ) {
+    ) -> bool {
         match res {
             Ok(event) => {
                 packet_metrics.handle_v311_event(event);
                 error_manager.put_ok().await;
+                true
             }
             Err(e) => {
                 warn!("Error: {:?}", e);
                 error_manager.put_err(e.to_string()).await;
+                false
             }
         }
     }
@@ -127,7 +129,9 @@ impl Client for MqttClientV311 {
                     }
 
                     event = eventloop.poll() => {
-                        Self::handle_event(&packet_metrics, event, &mut error_manager).await;
+                        if !Self::handle_event(&packet_metrics, event, &mut error_manager).await {
+                            return;
+                        }
                     }
                 }
             }

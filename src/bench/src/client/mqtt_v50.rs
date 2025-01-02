@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::v5::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
-use types::{PublishConf, PublishCreateUpdateReq, Status, SubscribeCreateUpdateReq};
+use types::{PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
