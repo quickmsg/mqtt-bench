@@ -7,7 +7,6 @@ use tokio::{
     sync::{mpsc, RwLock},
     time,
 };
-use tracing::debug;
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
     GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
@@ -393,19 +392,29 @@ impl Group {
     }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) -> Result<()> {
-        debug!("here");
         self.check_stopped()?;
-        debug!("here");
-
         let req2 = req.clone();
         let id = Arc::new(generate_id());
+
+        let payload = match (req.size, req.payload) {
+            (None, Some(payload)) => payload.into(),
+            (Some(size), None) => {
+                let mut payload = Vec::with_capacity(size);
+                for _ in 0..size {
+                    payload.push(0);
+                }
+                payload
+            }
+            _ => bail!("请指定 payload 或 size"),
+        };
+
         let conf = Arc::new(PublishConf {
             name: req.name,
             topic: req.topic,
             qos: req.qos,
             retain: req.retain,
             interval: req.interval,
-            payload: Arc::new(req.payload.into()),
+            payload: Arc::new(payload),
             v311: None,
             v50: None,
         });
@@ -437,13 +446,24 @@ impl Group {
     ) -> Result<()> {
         self.check_stopped()?;
         let req2 = req.clone();
+        let payload = match (req.size, req.payload) {
+            (None, Some(payload)) => payload.into(),
+            (Some(size), None) => {
+                let mut payload = Vec::with_capacity(size);
+                for _ in 0..size {
+                    payload.push(0);
+                }
+                payload
+            }
+            _ => bail!("请指定 payload 或 size"),
+        };
         let conf = Arc::new(PublishConf {
             name: req.name,
             topic: req.topic,
             qos: req.qos,
             retain: req.retain,
             interval: req.interval,
-            payload: Arc::new(req.payload.into()),
+            payload: Arc::new(payload),
             v311: None,
             v50: None,
         });
@@ -514,11 +534,11 @@ impl Group {
 
     pub async fn list_clients(&self, query: ClientsQueryParams) -> ClientsListResp {
         let mut list = vec![];
-        let offset = (query.p - 1) * query.l;
+        let offset = (query.p - 1) * query.s;
         let mut i = 0;
         for client in self.clients.read().await.iter().skip(offset) {
             i += 1;
-            if i >= query.l {
+            if i >= query.s {
                 break;
             }
             list.push(client.read().await);
@@ -570,7 +590,6 @@ impl Group {
                             running_cnt: 0,
                             stopped_cnt: 0,
                             error_cnt: 0,
-                            updating_cnt: 0,
                             waiting_cnt: 0,
                         },
                         packet: PacketMetrics {

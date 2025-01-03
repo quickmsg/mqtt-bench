@@ -152,7 +152,7 @@ async fn create_publish(
 }
 
 async fn list_publishes(Path(group_id): Path<String>) -> Json<ListPublishResp> {
-    Json(bench::list_publishes(group_id).await)
+    Json(bench::list_publishes(group_id).await.unwrap())
 }
 
 async fn update_publish(

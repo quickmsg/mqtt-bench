@@ -101,7 +101,8 @@ pub struct PublishCreateUpdateReq {
     pub retain: bool,
     // 毫秒
     pub interval: u64,
-    pub payload: String,
+    pub payload: Option<String>,
+    pub size: Option<usize>,
 
     pub v311: Option<PublishV311>,
     pub v50: Option<PublishV50>,
@@ -231,7 +232,7 @@ pub enum Status {
 #[derive(Deserialize)]
 pub struct ClientsQueryParams {
     pub p: usize,
-    pub l: usize,
+    pub s: usize,
     // TODO status
 }
 
@@ -273,7 +274,6 @@ pub struct ClientMetrics {
     pub running_cnt: usize,
     pub stopped_cnt: usize,
     pub error_cnt: usize,
-    pub updating_cnt: usize,
     pub waiting_cnt: usize,
 }
 

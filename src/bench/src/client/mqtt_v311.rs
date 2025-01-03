@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
-use tracing::warn;
 use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
@@ -65,7 +64,6 @@ impl MqttClientV311 {
                 true
             }
             Err(e) => {
-                warn!("Error: {:?}", e);
                 error_manager.put_err(e.to_string()).await;
                 false
             }

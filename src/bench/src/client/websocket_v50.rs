@@ -59,14 +59,16 @@ impl WebsocketClientV50 {
         packet_metrics: &Arc<PacketAtomicMetrics>,
         res: Result<Event, ConnectionError>,
         error_manager: &mut ErrorManager,
-    ) {
+    ) -> bool {
         match res {
             Ok(event) => {
                 packet_metrics.handle_v50_event(event);
                 error_manager.put_ok().await;
+                true
             }
             Err(e) => {
                 error_manager.put_err(e.to_string()).await;
+                false
             }
         }
     }

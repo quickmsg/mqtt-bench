@@ -228,16 +228,17 @@ pub async fn create_publish(group_id: String, req: types::PublishCreateUpdateReq
         .await
 }
 
-pub async fn list_publishes(group_id: String) -> ListPublishResp {
-    RUNTIME_INSTANCE
+pub async fn list_publishes(group_id: String) -> Result<ListPublishResp> {
+    match RUNTIME_INSTANCE
         .groups
         .read()
         .await
         .iter()
         .find(|group| group.id == group_id)
-        .unwrap()
-        .list_publishes()
-        .await
+    {
+        Some(group) => Ok(group.list_publishes().await),
+        None => bail!("group not found"),
+    }
 }
 
 pub async fn update_publish(
