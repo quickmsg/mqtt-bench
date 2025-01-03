@@ -8,10 +8,11 @@ use tokio::{
     time,
 };
 use types::{
-    BrokerUpdateReq, ClientMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
-    GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
-    MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PublishConf,
-    PublishCreateUpdateReq, ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq, UsizeMetrics,
+    BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
+    GroupCreateReq, GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp,
+    ListSubscribeRespItem, MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics,
+    PacketUsizeMetrics, PublishConf, PublishCreateUpdateReq, ReadGroupResp, SslConf, Status,
+    SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -28,7 +29,7 @@ pub struct Group {
 
     clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
 
-    history_metrics: Option<BiLock<Vec<(u64, UsizeMetrics)>>>,
+    history_metrics: Option<BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>>,
     broker_info: Arc<BrokerUpdateReq>,
     stop_signal_tx: tokio::sync::broadcast::Sender<()>,
 
@@ -210,11 +211,12 @@ impl Group {
 
     fn start_collect_metrics(
         &mut self,
-        history_metrics: BiLock<Vec<(u64, UsizeMetrics)>>,
+        history_metrics: BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>,
         statistics_interval: u64,
     ) {
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut status_interval = time::interval(time::Duration::from_secs(statistics_interval));
+        let client_metrics = self.client_metrics.clone();
         let packet_metrics = self.packet_metrics.clone();
         tokio::spawn(async move {
             loop {
@@ -224,7 +226,7 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_metrics(&packet_metrics, &history_metrics).await;
+                        Self::collect_metrics(&client_metrics,&packet_metrics, &history_metrics).await;
                     }
                 }
             }
@@ -232,15 +234,20 @@ impl Group {
     }
 
     async fn collect_metrics(
+        client_metrics: &Arc<ClientAtomicMetrics>,
         packet_metrics: &Arc<PacketAtomicMetrics>,
-        history_metrics: &BiLock<Vec<(u64, UsizeMetrics)>>,
+        history_metrics: &BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let usize_metrics = packet_metrics.take_metrics();
-        history_metrics.lock().await.push((ts, usize_metrics));
+        let client_usize_metrics = client_metrics.take_metrics();
+        let pakcet_usize_metrics = packet_metrics.take_metrics();
+        history_metrics
+            .lock()
+            .await
+            .push((ts, client_usize_metrics, pakcet_usize_metrics));
     }
 
     fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
@@ -568,59 +575,58 @@ impl Group {
                 let mut unsubscribe_total = 0;
                 let mut disconnect_total = 0;
                 for metric in self.history_metrics.as_ref().unwrap().lock().await.iter() {
-                    conn_ack_total += metric.1.conn_ack;
-                    pub_ack_total += metric.1.pub_ack;
-                    unsub_ack_total += metric.1.unsub_ack;
-                    ping_req_total += metric.1.ping_req;
-                    ping_resp_total += metric.1.ping_resp;
-                    outgoing_publish_total += metric.1.outgoing_publish;
-                    incoming_publish_total += metric.1.incoming_publish;
-                    pub_rel_total += metric.1.pub_rel;
-                    pub_rec_total += metric.1.pub_rec;
-                    pub_comp_total += metric.1.pub_comp;
-                    subscribe_total += metric.1.subscribe;
-                    sub_ack_total += metric.1.sub_ack;
-                    unsubscribe_total += metric.1.unsubscribe;
-                    disconnect_total += metric.1.disconnect;
+                    conn_ack_total += metric.2.conn_ack;
+                    pub_ack_total += metric.2.pub_ack;
+                    unsub_ack_total += metric.2.unsub_ack;
+                    ping_req_total += metric.2.ping_req;
+                    ping_resp_total += metric.2.ping_resp;
+                    outgoing_publish_total += metric.2.outgoing_publish;
+                    incoming_publish_total += metric.2.incoming_publish;
+                    pub_rel_total += metric.2.pub_rel;
+                    pub_rec_total += metric.2.pub_rec;
+                    pub_comp_total += metric.2.pub_comp;
+                    subscribe_total += metric.2.subscribe;
+                    sub_ack_total += metric.2.sub_ack;
+                    unsubscribe_total += metric.2.unsubscribe;
+                    disconnect_total += metric.2.disconnect;
 
                     list.push(MetricsListItem {
                         ts: metric.0,
-                        // TODO
                         client: ClientMetrics {
-                            running_cnt: 0,
-                            stopped_cnt: 0,
-                            error_cnt: 0,
-                            waiting_cnt: 0,
+                            running_cnt: metric.1.running_cnt,
+                            error_cnt: metric.1.error_cnt,
+                            stopped_cnt: metric.1.stopped_cnt,
+                            waiting_cnt: metric.1.waiting_cnt,
                         },
                         packet: PacketMetrics {
                             conn_ack_total,
-                            conn_ack_cnt: metric.1.conn_ack,
+                            conn_ack_cnt: metric.2.conn_ack,
                             pub_ack_total,
-                            pub_ack_cnt: metric.1.pub_ack,
+                            pub_ack_cnt: metric.2.pub_ack,
                             unsub_ack_total,
-                            unsub_ack_cnt: metric.1.unsub_ack,
+                            unsub_ack_cnt: metric.2.unsub_ack,
                             ping_req_total,
-                            ping_req_cnt: metric.1.ping_req,
+                            ping_req_cnt: metric.2.ping_req,
                             ping_resp_total,
-                            ping_resp_cnt: metric.1.ping_resp,
+                            ping_resp_cnt: metric.2.ping_resp,
                             outgoing_publish_total,
-                            outgoing_publish_cnt: metric.1.outgoing_publish,
+                            outgoing_publish_cnt: metric.2.outgoing_publish,
                             incoming_publish_total,
-                            incoming_publish_cnt: metric.1.incoming_publish,
+                            incoming_publish_cnt: metric.2.incoming_publish,
                             pub_rel_total,
-                            pub_rel_cnt: metric.1.pub_rel,
+                            pub_rel_cnt: metric.2.pub_rel,
                             pub_rec_total,
-                            pub_rec_cnt: metric.1.pub_rec,
+                            pub_rec_cnt: metric.2.pub_rec,
                             pub_comp_total,
-                            pub_comp_cnt: metric.1.pub_comp,
+                            pub_comp_cnt: metric.2.pub_comp,
                             subscribe_total,
-                            subscribe_cnt: metric.1.subscribe,
+                            subscribe_cnt: metric.2.subscribe,
                             sub_ack_total,
-                            sub_ack_cnt: metric.1.sub_ack,
+                            sub_ack_cnt: metric.2.sub_ack,
                             unsubscribe_total,
-                            unsubscribe_cnt: metric.1.unsubscribe,
+                            unsubscribe_cnt: metric.2.unsubscribe,
                             disconnect_total,
-                            disconnect_cnt: metric.1.disconnect,
+                            disconnect_cnt: metric.2.disconnect,
                         },
                     });
                 }

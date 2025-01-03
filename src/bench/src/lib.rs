@@ -9,9 +9,10 @@ use group::Group;
 use tokio::sync::{mpsc, RwLock};
 use tracing::debug;
 use types::{
-    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupListResp,
-    GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp,
-    MetricsQueryParams, ReadGroupResp, Status, SubscribeCreateUpdateReq, UsizeMetrics,
+    BrokerUpdateReq, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
+    GroupListResp, GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp,
+    MetricsListResp, MetricsQueryParams, PacketUsizeMetrics, ReadGroupResp, Status,
+    SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -353,6 +354,23 @@ pub struct ClientAtomicMetrics {
     pub stopped_cnt: AtomicUsize,
 }
 
+impl ClientAtomicMetrics {
+    pub fn take_metrics(&self) -> ClientUsizeMetrics {
+        ClientUsizeMetrics {
+            running_cnt: self
+                .running_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            waiting_cnt: self
+                .waiting_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            error_cnt: self.error_cnt.swap(0, std::sync::atomic::Ordering::SeqCst),
+            stopped_cnt: self
+                .stopped_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PacketAtomicMetrics {
     // 连接确认
@@ -537,8 +555,8 @@ impl PacketAtomicMetrics {
         }
     }
 
-    pub fn take_metrics(&self) -> UsizeMetrics {
-        UsizeMetrics {
+    pub fn take_metrics(&self) -> PacketUsizeMetrics {
+        PacketUsizeMetrics {
             conn_ack: self.conn_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
             pub_ack: self.pub_ack.swap(0, std::sync::atomic::Ordering::SeqCst),
             unsub_ack: self.unsub_ack.swap(0, std::sync::atomic::Ordering::SeqCst),

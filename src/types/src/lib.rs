@@ -150,15 +150,15 @@ pub enum Qos {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClientStatus {
-    pub ts: u64,
-    pub succeed: usize,
-    pub failed: usize,
-    pub status: Status,
+pub struct ClientUsizeMetrics {
+    pub running_cnt: usize,
+    pub waiting_cnt: usize,
+    pub error_cnt: usize,
+    pub stopped_cnt: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UsizeMetrics {
+pub struct PacketUsizeMetrics {
     // 连接确认
     pub conn_ack: usize,
     // 发布确认
