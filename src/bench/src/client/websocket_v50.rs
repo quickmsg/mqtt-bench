@@ -143,6 +143,14 @@ impl Client for WebsocketClientV50 {
         stop!(self);
     }
 
+    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+        // self.client
+        //     .as_ref()
+        //     .unwrap()
+        //     .publish(topic.clone(), qos, false, payload)
+        //     .await;
+    }
+
     fn update_status(&mut self, status: Status) {
         update_status!(self, status);
     }

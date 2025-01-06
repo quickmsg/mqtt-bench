@@ -85,8 +85,7 @@ pub struct PublishConf {
     pub topic: String,
     pub qos: Qos,
     pub retain: bool,
-    // 毫秒
-    pub interval: u64,
+    pub tps: usize,
     pub payload: Arc<Vec<u8>>,
 
     pub v311: Option<PublishV311>,
@@ -99,8 +98,7 @@ pub struct PublishCreateUpdateReq {
     pub topic: String,
     pub qos: Qos,
     pub retain: bool,
-    // 毫秒
-    pub interval: u64,
+    pub tps: usize,
     pub payload: Option<String>,
     pub size: Option<usize>,
 

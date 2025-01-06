@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
 use tokio::{select, sync::watch};
+use tracing::{debug, warn};
 use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
@@ -64,6 +65,7 @@ impl MqttClientV311 {
                 true
             }
             Err(e) => {
+                warn!("客户端连接错误：{:?}", e);
                 error_manager.put_err(e.to_string()).await;
                 false
             }
@@ -118,6 +120,7 @@ impl Client for MqttClientV311 {
 
         let (err1, err2) = BiLock::new(None);
         self.err = Some(err1);
+
         tokio::spawn(async move {
             let mut error_manager = ErrorManager::new(err2);
             loop {
@@ -142,6 +145,15 @@ impl Client for MqttClientV311 {
         for subscribe in self.subscribes.iter_mut() {
             subscribe.start(self.client.as_ref().unwrap()).await;
         }
+    }
+
+    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+        self.client
+            .as_ref()
+            .unwrap()
+            .publish(topic.clone(), qos, false, payload)
+            .await
+            .unwrap();
     }
 
     async fn stop(&mut self) {

@@ -133,6 +133,14 @@ impl Client for MqttClientV50 {
         }
     }
 
+    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+        // self.client
+        //     .as_ref()
+        //     .unwrap()
+        //     .publish(topic.clone(), qos, false, payload)
+        //     .await;
+    }
+
     async fn stop(&mut self) {
         stop!(self);
     }

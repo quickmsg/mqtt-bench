@@ -24,6 +24,8 @@ pub trait Client: Sync + Send {
     fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
     fn delete_publish(&mut self, id: &String);
 
+    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>);
+
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
     async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
     async fn delete_subscribe(&mut self, subscribe_id: &String);

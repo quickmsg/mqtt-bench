@@ -4,9 +4,7 @@ use async_trait::async_trait;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
-use types::{
-    ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
-};
+use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
@@ -148,6 +146,14 @@ impl Client for WebsocketClientV311 {
         for subscribe in self.subscribes.iter_mut() {
             subscribe.start(self.client.as_ref().unwrap()).await;
         }
+    }
+
+    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+        // self.client
+        //     .as_ref()
+        //     .unwrap()
+        //     .publish(topic.clone(), qos, false, payload)
+        //     .await;
     }
 
     async fn stop(&mut self) {

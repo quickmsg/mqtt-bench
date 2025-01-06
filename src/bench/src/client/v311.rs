@@ -40,25 +40,25 @@ impl Publish {
             self.running = true;
         }
 
-        let conf = self.conf.clone();
-        let mut stop_signal_rx = self.stop_signal_tx.subscribe();
-        tokio::spawn(async move {
-            let qos = get_qos(&conf.qos);
-            let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
-            loop {
-                select! {
-                    _ = stop_signal_rx.changed() => {
-                        break;
-                    }
+        // let conf = self.conf.clone();
+        // let mut stop_signal_rx = self.stop_signal_tx.subscribe();
+        // tokio::spawn(async move {
+        //     let qos = get_qos(&conf.qos);
+        //     let mut interval = tokio::time::interval(Duration::from_millis(conf.interval));
+        //     loop {
+        //         select! {
+        //             _ = stop_signal_rx.changed() => {
+        //                 break;
+        //             }
 
-                    _ = interval.tick() => {
-                        let _ = client
-                            .publish(conf.topic.clone(), qos, conf.retain, conf.payload.clone())
-                            .await;
-                    }
-                }
-            }
-        });
+        //             _ = interval.tick() => {
+        //                 let _ = client
+        //                     .publish(conf.topic.clone(), qos, conf.retain, conf.payload.clone())
+        //                     .await;
+        //             }
+        //         }
+        //     }
+        // });
     }
 
     pub fn stop(&mut self) {

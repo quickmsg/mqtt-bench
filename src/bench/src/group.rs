@@ -1,12 +1,16 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{
+    sync::{atomic::AtomicU32, Arc},
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{bail, Result};
 use futures::lock::BiLock;
 use tokio::{
     select,
-    sync::{mpsc, RwLock},
+    sync::{mpsc, oneshot, RwLock},
     time,
 };
+use tracing::info;
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
     GroupCreateReq, GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp,
@@ -38,6 +42,8 @@ pub struct Group {
 
     client_metrics: Arc<ClientAtomicMetrics>,
     packet_metrics: Arc<PacketAtomicMetrics>,
+
+    running_client: Arc<AtomicU32>,
 }
 
 pub struct ClientGroupConf {
@@ -81,6 +87,7 @@ impl Group {
             subscribes: vec![],
             client_metrics,
             packet_metrics,
+            running_client: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -179,7 +186,7 @@ impl Group {
         clients
     }
 
-    pub fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+    pub async fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
         match self.status {
             Status::Starting | Status::Running => return,
             Status::Stopped | Status::Waiting | Status::Updating => {
@@ -190,8 +197,62 @@ impl Group {
         let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
         self.start_collect_metrics(history_metrics_1, self.broker_info.statistics_interval);
 
+        let (tx, rx) = oneshot::channel::<()>();
+
         self.history_metrics = Some(history_metrics_2);
-        self.start_clients(job_finished_signal_tx);
+        self.start_clients(job_finished_signal_tx, tx);
+
+        let mill_cnt = self.publishes[0].1.tps / 60;
+        let mut interval = tokio::time::interval(Duration::from_millis(1));
+        let pulish = self.publishes[0].1.clone();
+
+        let topic = pulish.topic.clone();
+        let qos = match pulish.qos {
+            types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
+            types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
+            types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+        };
+
+        let payload = match (pulish.size, pulish.payload) {
+            (None, Some(payload)) => payload.into(),
+            (Some(size), None) => {
+                let mut payload = Vec::with_capacity(size);
+                for _ in 0..size {
+                    payload.push(0);
+                }
+                payload
+            }
+            _ => panic!("请指定 payload 或 size"),
+        };
+        let payload = Arc::new(payload);
+        let client_pos = 0;
+        let client_len = self.clients.read().await.len();
+        rx.await.unwrap();
+        loop {
+            select! {
+                _ = interval.tick() => {
+                    Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len).await;
+                }
+            }
+        }
+    }
+
+    async fn client_publish(
+        clients: &Arc<RwLock<Vec<Box<dyn Client>>>>,
+        mut client_pos: usize,
+        mill_cnt: usize,
+        topic: &String,
+        qos: rumqttc::QoS,
+        payload: &Arc<Vec<u8>>,
+        client_len: usize,
+    ) {
+        for _ in 0..mill_cnt {
+            clients.read().await[client_pos]
+                .publish(topic.clone(), qos, payload.clone())
+                .await;
+            client_pos += 1;
+            client_pos %= client_len;
+        }
     }
 
     pub async fn stop(&mut self) {
@@ -218,6 +279,7 @@ impl Group {
         let mut status_interval = time::interval(time::Duration::from_secs(statistics_interval));
         let client_metrics = self.client_metrics.clone();
         let packet_metrics = self.packet_metrics.clone();
+        let client_running_cnt = self.running_client.clone();
         tokio::spawn(async move {
             loop {
                 select! {
@@ -226,7 +288,7 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_metrics(&client_metrics,&packet_metrics, &history_metrics).await;
+                        Self::collect_metrics(&client_metrics,&packet_metrics, &history_metrics, &client_running_cnt).await;
                     }
                 }
             }
@@ -237,20 +299,34 @@ impl Group {
         client_metrics: &Arc<ClientAtomicMetrics>,
         packet_metrics: &Arc<PacketAtomicMetrics>,
         history_metrics: &BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>,
+        running_client: &Arc<AtomicU32>,
     ) {
         let ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         let client_usize_metrics = client_metrics.take_metrics();
+        let prev = running_client.fetch_add(
+            client_usize_metrics.running_cnt as u32,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        info!(
+            "running client: {:?}",
+            prev + client_usize_metrics.running_cnt as u32
+        );
         let pakcet_usize_metrics = packet_metrics.take_metrics();
+        info!("pakcet_usize_metrics: {:?}", pakcet_usize_metrics);
         history_metrics
             .lock()
             .await
             .push((ts, client_usize_metrics, pakcet_usize_metrics));
     }
 
-    fn start_clients(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+    fn start_clients(
+        &mut self,
+        job_finished_signal_tx: mpsc::UnboundedSender<()>,
+        tx: oneshot::Sender<()>,
+    ) {
         let clients = self.clients.clone();
         let mut connect_interval = time::interval(time::Duration::from_millis(
             self.broker_info.connect_interval,
@@ -271,6 +347,7 @@ impl Group {
                             index += 1;
                         } else {
                             job_finished_signal_tx.send(()).unwrap();
+                            tx.send(()).unwrap();
                             break;
                         }
                     }
@@ -420,15 +497,15 @@ impl Group {
             topic: req.topic,
             qos: req.qos,
             retain: req.retain,
-            interval: req.interval,
+            tps: req.tps,
             payload: Arc::new(payload),
             v311: None,
             v50: None,
         });
 
-        self.clients.write().await.iter_mut().for_each(|client| {
-            client.create_publish(id.clone(), conf.clone());
-        });
+        // self.clients.write().await.iter_mut().for_each(|client| {
+        //     client.create_publish(id.clone(), conf.clone());
+        // });
 
         self.publishes.push((id, req2));
         Ok(())
@@ -469,7 +546,7 @@ impl Group {
             topic: req.topic,
             qos: req.qos,
             retain: req.retain,
-            interval: req.interval,
+            tps: req.tps,
             payload: Arc::new(payload),
             v311: None,
             v50: None,

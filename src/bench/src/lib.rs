@@ -68,7 +68,8 @@ impl TaskQueue {
                         .iter_mut()
                         .find(|g| g.id == group_id)
                         .unwrap()
-                        .start(job_finished_signal_tx.clone());
+                        .start(job_finished_signal_tx.clone())
+                        .await;
                     debug!("group {} starting", group_id);
                     job_finished_signal_rx.recv().await;
                     debug!("group  finisned",);
