@@ -10,7 +10,7 @@ use tokio::{
     sync::{mpsc, oneshot, RwLock},
     time,
 };
-use tracing::info;
+use tracing::{debug, info};
 use types::{
     BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
     GroupCreateReq, GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp,
@@ -202,7 +202,8 @@ impl Group {
         self.history_metrics = Some(history_metrics_2);
         self.start_clients(job_finished_signal_tx, tx);
 
-        let mill_cnt = self.publishes[0].1.tps / 60;
+        let mill_cnt = self.publishes[0].1.tps / 1000;
+        debug!("mill cnt {:?}", mill_cnt);
         let mut interval = tokio::time::interval(Duration::from_millis(1));
         let pulish = self.publishes[0].1.clone();
 
@@ -314,6 +315,7 @@ impl Group {
             "running client: {:?}",
             prev + client_usize_metrics.running_cnt as u32
         );
+
         let pakcet_usize_metrics = packet_metrics.take_metrics();
         info!("pakcet_usize_metrics: {:?}", pakcet_usize_metrics);
         history_metrics

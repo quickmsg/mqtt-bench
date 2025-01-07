@@ -372,7 +372,7 @@ impl ClientAtomicMetrics {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PacketAtomicMetrics {
     // 连接确认
     pub conn_ack: AtomicUsize,

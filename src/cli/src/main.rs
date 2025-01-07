@@ -40,9 +40,9 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(LevelFilter::DEBUG)
+        .with_max_level(LevelFilter::INFO)
         // TODO 发布环境去除
-        .with_line_number(true)
+        // .with_line_number(true)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
@@ -62,7 +62,7 @@ async fn main() {
         username: None,
         password: None,
         client_id: None,
-        connect_interval: 10,
+        connect_interval: 5,
         statistics_interval: 1,
         local_ips,
     })
@@ -71,7 +71,7 @@ async fn main() {
 
     bench::create_group(types::GroupCreateReq {
         name: "test".to_string(),
-        client_id: "test".to_string(),
+        client_id: "${uuid}".to_string(),
         protocol_version: types::ProtocolVersion::V311,
         protocol: types::Protocol::Mqtt,
         port: 1883,
@@ -82,9 +82,9 @@ async fn main() {
 
     let groups = bench::list_groups().await;
     let qos = match args.qos {
-        1 => Qos::AtMostOnce,
-        2 => Qos::AtLeastOnce,
-        3 => Qos::ExactlyOnce,
+        0 => Qos::AtMostOnce,
+        1 => Qos::AtLeastOnce,
+        2 => Qos::ExactlyOnce,
         _ => panic!("invalid qos"),
     };
     bench::create_publish(

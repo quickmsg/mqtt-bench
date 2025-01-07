@@ -83,7 +83,7 @@ impl Client for MqttClientV311 {
             self.group_conf.port,
         );
 
-        mqtt_options.set_max_packet_size(100240, 100240);
+        mqtt_options.set_max_packet_size(20240, 20240);
 
         if let Some(ssl_conf) = &self.group_conf.ssl_conf {
             let config = get_ssl_config(ssl_conf);
@@ -138,9 +138,9 @@ impl Client for MqttClientV311 {
             }
         });
 
-        for publish in self.publishes.iter_mut() {
-            publish.start(self.client.clone().unwrap());
-        }
+        // for publish in self.publishes.iter_mut() {
+        //     publish.start(self.client.clone().unwrap());
+        // }
 
         for subscribe in self.subscribes.iter_mut() {
             subscribe.start(self.client.as_ref().unwrap()).await;
