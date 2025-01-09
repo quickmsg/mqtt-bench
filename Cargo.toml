@@ -30,6 +30,7 @@ thiserror = "2.0.10"
 serde = { version = "1.0.217", features = ["derive"] }
 bitflags = "2.6.0"
 bytestring = "1.4.0"
+http = "1.2.0"
 
 [profile.release]
 opt-level = "z"   # 最小化大小

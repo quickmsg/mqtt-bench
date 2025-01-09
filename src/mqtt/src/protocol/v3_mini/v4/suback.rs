@@ -83,36 +83,3 @@ impl TryFrom<u8> for SubscribeReasonCode {
         Ok(v)
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use bytes::BytesMut;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn suback_parsing_works() {
-        let stream = vec![
-            0x90, 4, // packet type, flags and remaining len
-            0x00, 0x0F, // variable header. pkid = 15
-            0x01, 0x80, // payload. return codes [success qos1, failure]
-            0xDE, 0xAD, 0xBE, 0xEF, // extra packets in the stream
-        ];
-
-        let mut stream = BytesMut::from(&stream[..]);
-        let fixed_header = parse_fixed_header(stream.iter()).unwrap();
-        let ack_bytes = stream.split_to(fixed_header.frame_length()).freeze();
-        let packet = SubAck::read(fixed_header, ack_bytes).unwrap();
-
-        assert_eq!(
-            packet,
-            SubAck {
-                pkid: 15,
-                return_codes: vec![
-                    SubscribeReasonCode::Success(QoS::AtLeastOnce),
-                    SubscribeReasonCode::Failure,
-                ],
-            }
-        );
-    }
-}

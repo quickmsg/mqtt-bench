@@ -10,3 +10,13 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 bitflags = { workspace = true }
 bytestring = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+http = { workspace = true }
+rustls-pemfile = "2.2.0"
+tokio-rustls = "0.26.1"
+async-tungstenite = "0.28.2"
+rustls-native-certs = "0.8.1"
+webpki = "0.22.4"
+flume = "0.11.1"
+ws_stream_tungstenite = "0.14.0"

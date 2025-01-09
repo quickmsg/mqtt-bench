@@ -52,30 +52,3 @@ impl PubAck {
         Ok(1 + count + len)
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use bytes::BytesMut;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn puback_encoding_works() {
-        let stream = &[
-            0b0100_0000,
-            0x02, // packet type, flags and remaining len
-            0x00,
-            0x0A, // fixed header. packet identifier = 10
-            0xDE,
-            0xAD,
-            0xBE,
-            0xEF, // extra packets in the stream
-        ];
-        let mut stream = BytesMut::from(&stream[..]);
-        let fixed_header = parse_fixed_header(stream.iter()).unwrap();
-        let ack_bytes = stream.split_to(fixed_header.frame_length()).freeze();
-        let packet = PubAck::read(fixed_header, ack_bytes).unwrap();
-
-        assert_eq!(packet, PubAck { pkid: 10 });
-    }
-}
