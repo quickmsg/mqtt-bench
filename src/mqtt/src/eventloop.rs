@@ -2,6 +2,7 @@ use flume::{bounded, Receiver, Sender};
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
 use tokio::{select, time};
 use tracing::error;
+use types::group::PacketAtomicMetrics;
 
 use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
 use crate::state::StateError;
@@ -75,13 +76,6 @@ pub struct EventLoop {
     pub network_options: NetworkOptions,
 }
 
-/// Events which can be yielded by the event loop
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
-    Incoming(Incoming),
-    Outgoing(Arc<Vec<u8>>),
-}
-
 impl EventLoop {
     /// New MQTT `EventLoop`
     ///
@@ -90,6 +84,7 @@ impl EventLoop {
     pub async fn start(
         mqtt_options: MqttOptions,
         cap: usize,
+        packet_metrics: Arc<PacketAtomicMetrics>,
     ) -> Result<Sender<Packet>, ConnectionError> {
         let (requests_tx, requests_rx) = bounded(cap);
 
@@ -100,33 +95,47 @@ impl EventLoop {
             network_options: NetworkOptions::new(),
         };
 
-        let network = eventloop.connect().await?;
-        eventloop.run_long_time(network);
+        if let Some(local_ip) = &eventloop.mqtt_options.local_ip {
+            eventloop.network_options.local_ip = Some(local_ip.clone());
+        }
+
+        let network = eventloop.connect(&packet_metrics).await?;
+        eventloop.run_long_time(network, packet_metrics);
 
         Ok(requests_tx)
     }
 
-    pub async fn connect(&mut self) -> Result<Network, ConnectionError> {
+    pub async fn connect(
+        &mut self,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+    ) -> Result<Network, ConnectionError> {
         let (network, connack) = match time::timeout(
             Duration::from_secs(self.network_options.connection_timeout()),
-            connect(&self.mqtt_options, self.network_options.clone()),
+            connect(
+                &self.mqtt_options,
+                self.network_options.clone(),
+                packet_metrics,
+            ),
         )
         .await
         {
             Ok(inner) => inner?,
             Err(_) => return Err(ConnectionError::NetworkTimeout),
         };
+        packet_metrics
+            .conn_ack
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // TODO conn ack
         // Last session might contain packets which aren't acked. If it's a new session, clear the pending packets.
         Ok(network)
     }
 
     /// Select on network and requests and generate keepalive pings when necessary
-    fn run_long_time(self, mut network: Network) {
+    fn run_long_time(self, mut network: Network, packet_metrics: Arc<PacketAtomicMetrics>) {
         tokio::spawn(async move {
             loop {
                 select! {
-                    o = network.readb() => {
+                    o = network.readb(&packet_metrics) => {
                         match o {
                             Ok(_) => {}
                             Err(_) => {
@@ -148,7 +157,7 @@ impl EventLoop {
                     r = self.requests_rx.recv_async() => {
                         match r {
                             Ok(r) => {
-                                if let Err(e) = network.write(r).await {
+                                if let Err(e) = network.write(r, &packet_metrics).await {
                                     error!("network write error: {:?}", e);
                                     return;
                                 }
@@ -189,12 +198,13 @@ impl EventLoop {
 async fn connect(
     mqtt_options: &MqttOptions,
     network_options: NetworkOptions,
+    packet_metrics: &Arc<PacketAtomicMetrics>,
 ) -> Result<(Network, ConnAck), ConnectionError> {
     // connect to the broker
     let mut network = network_connect(mqtt_options, network_options).await?;
 
     // make MQTT connection request (which internally awaits for ack)
-    let connack = mqtt_connect(mqtt_options, &mut network).await?;
+    let connack = mqtt_connect(mqtt_options, &mut network, &packet_metrics).await?;
 
     Ok((network, connack))
 }
@@ -229,6 +239,11 @@ pub(crate) async fn socket_connect(
                 // which is causing PermissionDenied errors in AWS environment (lambda function).
                 socket.bind_device(Some(bind_device.as_bytes()))?;
             }
+        }
+
+        if let Some(local_ip) = &network_options.local_ip {
+            let local_addr = format!("{}:0", local_ip).parse().unwrap();
+            socket.bind(local_addr)?;
         }
 
         match socket.connect(addr).await {
@@ -363,15 +378,18 @@ async fn network_connect(
 async fn mqtt_connect(
     options: &MqttOptions,
     network: &mut Network,
+    packet_metrics: &Arc<PacketAtomicMetrics>,
 ) -> Result<ConnAck, ConnectionError> {
     let mut connect = Connect::new(options.client_id());
-    connect.keep_alive = options.keep_alive().as_secs() as u16;
+    connect.keep_alive = options.keep_alive();
     connect.clean_session = options.clean_session();
     // connect.last_will = options.last_will();
     connect.login = options.credentials();
 
     // send mqtt connect packet
-    network.write(Packet::Connect(connect)).await?;
+    network
+        .write(Packet::Connect(connect), &packet_metrics)
+        .await?;
     network.flush().await?;
 
     // validate connack

@@ -1,8 +1,12 @@
 //! This module offers a high level synchronous and asynchronous abstraction to
 //! async eventloop.
 
+use std::sync::Arc;
+
 use flume::Sender;
 use tokio::runtime::Runtime;
+use tracing::warn;
+use types::group::PacketAtomicMetrics;
 
 use crate::{protocol::v3_mini::v4::Packet, ConnectionError, EventLoop, MqttOptions, Request};
 
@@ -29,14 +33,20 @@ impl AsyncClient {
     /// Create a new `AsyncClient`.
     ///
     /// `cap` specifies the capacity of the bounded async channel.
-    pub async fn new(options: MqttOptions, cap: usize) -> Result<AsyncClient, ConnectionError> {
-        let request_tx = EventLoop::start(options, cap).await?;
+    pub async fn new(
+        options: MqttOptions,
+        cap: usize,
+        packet_metrics: Arc<PacketAtomicMetrics>,
+    ) -> Result<AsyncClient, ConnectionError> {
+        let request_tx = EventLoop::start(options, cap, packet_metrics).await?;
         let client = AsyncClient { request_tx };
         Ok(client)
     }
 
     pub async fn publish(&self, payload: Packet) {
-        self.request_tx.send_async(payload).await.unwrap();
+        if let Err(_) = self.request_tx.send_async(payload).await {
+            warn!("超负载，服务端可能无法处理消息");
+        }
     }
 }
 

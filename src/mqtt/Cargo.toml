@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+types = { workspace = true }
+
 bytes = { workspace = true }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }

@@ -3,6 +3,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+pub mod group;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerUpdateReq {
     pub hosts: Vec<String>,

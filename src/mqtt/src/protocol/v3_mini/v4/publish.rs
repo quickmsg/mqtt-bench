@@ -15,12 +15,12 @@ pub struct Publish {
 }
 
 impl Publish {
-    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Bytes>) -> Publish {
+    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Bytes>, pkid: u16) -> Publish {
         Publish {
             dup: false,
             qos,
             retain: false,
-            pkid: 0,
+            pkid,
             topic: topic.into(),
             payload: Some(payload),
         }

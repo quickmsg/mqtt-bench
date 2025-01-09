@@ -121,7 +121,7 @@ type RequestModifierFn = Arc<
 mod proxy;
 
 pub use client::{AsyncClient, RecvError, RecvTimeoutError, TryRecvError};
-pub use eventloop::{ConnectionError, Event, EventLoop};
+pub use eventloop::{ConnectionError, EventLoop};
 use protocol::v3_mini::v4::{
     Disconnect, Login, Packet, PingReq, PingResp, PubAck, PubComp, PubRec, PubRel, Publish, SubAck,
     Subscribe, UnsubAck, Unsubscribe,
@@ -260,6 +260,7 @@ pub struct NetworkOptions {
     conn_timeout: u64,
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     bind_device: Option<String>,
+    local_ip: Option<String>,
 }
 
 impl NetworkOptions {
@@ -271,6 +272,7 @@ impl NetworkOptions {
             conn_timeout: 5,
             #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
             bind_device: None,
+            local_ip: None,
         }
     }
 
@@ -307,6 +309,11 @@ impl NetworkOptions {
         self.bind_device = Some(bind_device.to_string());
         self
     }
+
+    pub fn set_local_ip(&mut self, local_ip: &str) -> &mut Self {
+        self.local_ip = Some(local_ip.to_string());
+        self
+    }
 }
 
 // TODO: Should all the options be exposed as public? Drawback
@@ -322,7 +329,7 @@ pub struct MqttOptions {
     // What transport protocol to use
     transport: Transport,
     /// keep alive time to send pingreq to broker when the connection is idle
-    keep_alive: Duration,
+    keep_alive: u16,
     /// clean (or) persistent session
     clean_session: bool,
     /// client identifier
@@ -345,6 +352,8 @@ pub struct MqttOptions {
     #[cfg(feature = "proxy")]
     /// Proxy configuration.
     proxy: Option<Proxy>,
+
+    local_ip: Option<String>,
 }
 
 impl MqttOptions {
@@ -362,7 +371,7 @@ impl MqttOptions {
             broker_addr: host.into(),
             port,
             transport: Transport::tcp(),
-            keep_alive: Duration::from_secs(60),
+            keep_alive: u16::MAX,
             clean_session: true,
             client_id: id.into(),
             credentials: None,
@@ -373,6 +382,7 @@ impl MqttOptions {
             pending_throttle: Duration::from_micros(0),
             #[cfg(feature = "proxy")]
             proxy: None,
+            local_ip: None,
         }
     }
 
@@ -425,19 +435,12 @@ impl MqttOptions {
 
     /// Set number of seconds after which client should ping the broker
     /// if there is no other data exchange
-    pub fn set_keep_alive(&mut self, duration: Duration) -> &mut Self {
-        assert!(
-            duration.is_zero() || duration >= Duration::from_secs(1),
-            "Keep alives should be specified in seconds. Durations less than \
-            a second are not allowed, except for Duration::ZERO."
-        );
-
-        self.keep_alive = duration;
+    pub fn set_keep_alive(&mut self, seconds: u16) -> &mut Self {
+        self.keep_alive = seconds;
         self
     }
 
-    /// Keep alive time
-    pub fn keep_alive(&self) -> Duration {
+    pub fn keep_alive(&self) -> u16 {
         self.keep_alive
     }
 
@@ -554,6 +557,11 @@ impl MqttOptions {
     #[cfg(feature = "websocket")]
     pub fn request_modifier(&self) -> Option<RequestModifierFn> {
         self.request_modifier.clone()
+    }
+
+    pub fn set_local_ip(&mut self, local_ip: &str) -> &mut Self {
+        self.local_ip = Some(local_ip.to_string());
+        self
     }
 }
 

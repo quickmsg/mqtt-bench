@@ -6,12 +6,11 @@ use futures::lock::BiLock;
 use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
 use tokio::{select, sync::watch};
 use tracing::{error, warn};
-use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
+use types::{group::PacketAtomicMetrics, ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
     read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
-    ErrorManager, PacketAtomicMetrics,
 };
 
 use super::{
@@ -71,7 +70,7 @@ impl Client for MqttClientV311 {
             mqtt_options.set_transport(transport);
         }
 
-        mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
+        mqtt_options.set_keep_alive(self.client_conf.keep_alive);
         match (&self.client_conf.username, &self.client_conf.password) {
             (Some(username), Some(password)) => {
                 mqtt_options.set_credentials(username.clone(), password.clone());
@@ -85,8 +84,12 @@ impl Client for MqttClientV311 {
             _ => {}
         }
 
-        let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let client = match AsyncClient::new(mqtt_options, 8).await {
+        if let Some(local_ip) = &self.client_conf.local_ip {
+            mqtt_options.set_local_ip(local_ip);
+        }
+
+        // let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
+        let client = match AsyncClient::new(mqtt_options, 8, self.packet_metrics.clone()).await {
             Ok(client) => client,
             Err(e) => {
                 error!("客户端连接错误: {:?}", e);
@@ -94,12 +97,8 @@ impl Client for MqttClientV311 {
             }
         };
 
-        // if let Some(local_ip) = &self.client_conf.local_ip {
-        //     eventloop.network_options.set_local_ip(local_ip);
-        // }
-
         self.client = Some(client);
-        self.stop_signal_tx = Some(stop_signal_tx);
+        // self.stop_signal_tx = Some(stop_signal_tx);
 
         let packet_metrics = self.packet_metrics.clone();
 
@@ -115,8 +114,14 @@ impl Client for MqttClientV311 {
         // }
     }
 
-    async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>) {
-        let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload);
+    async fn publish(
+        &self,
+        topic: String,
+        qos: mqtt::protocol::v3_mini::QoS,
+        payload: Arc<Bytes>,
+        pkid: u16,
+    ) {
+        let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
         self.client
             .as_ref()
             .unwrap()

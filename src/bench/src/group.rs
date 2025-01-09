@@ -13,17 +13,17 @@ use tokio::{
 };
 use tracing::{debug, info};
 use types::{
-    BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
-    GroupCreateReq, GroupUpdateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp,
-    ListSubscribeRespItem, MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics,
-    PacketUsizeMetrics, PublishConf, PublishCreateUpdateReq, ReadGroupResp, SslConf, Status,
-    SubscribeCreateUpdateReq,
+    group::PacketAtomicMetrics, BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics,
+    ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq, ListPublishResp,
+    ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem, MetricsListItem,
+    MetricsListResp, MetricsQueryParams, PacketMetrics, PacketUsizeMetrics, PublishConf,
+    PublishCreateUpdateReq, ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
 use crate::{
     client::{self, Client},
-    generate_id, ClientAtomicMetrics, PacketAtomicMetrics,
+    generate_id, ClientAtomicMetrics,
 };
 
 // 运行中不允许更新，降低复杂度
@@ -32,7 +32,7 @@ pub struct Group {
     pub status: Status,
     pub conf: GroupCreateReq,
 
-    clients: Arc<RwLock<Vec<Box<dyn Client>>>>,
+    clients: Vec<Box<dyn Client>>,
 
     history_metrics: Option<BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>>,
     broker_info: Arc<BrokerUpdateReq>,
@@ -80,7 +80,7 @@ impl Group {
             id,
             status: Status::Stopped,
             conf: req,
-            clients: Arc::new(RwLock::new(clients)),
+            clients,
             history_metrics: None,
             broker_info,
             stop_signal_tx,
@@ -141,7 +141,7 @@ impl Group {
             let client_conf = client::ClientConf {
                 id: client_id,
                 host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                keep_alive: 60,
+                keep_alive: u16::MAX,
                 username: None,
                 password: None,
                 local_ip,
@@ -156,28 +156,31 @@ impl Group {
                     ));
                 }
                 (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
-                    clients.push(client::mqtt_v50::new(
-                        client_conf,
-                        client_group_conf.clone(),
-                        client_metrics.clone(),
-                        packet_metrics.clone(),
-                    ));
+                    todo!()
+                    // clients.push(client::mqtt_v50::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V311) => {
-                    clients.push(client::websocket_v311::new(
-                        client_conf,
-                        client_group_conf.clone(),
-                        client_metrics.clone(),
-                        packet_metrics.clone(),
-                    ));
+                    todo!()
+                    // clients.push(client::websocket_v311::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
                 }
                 (types::Protocol::Websocket, types::ProtocolVersion::V50) => {
-                    clients.push(client::websocket_v50::new(
-                        client_conf,
-                        client_group_conf.clone(),
-                        client_metrics.clone(),
-                        packet_metrics.clone(),
-                    ));
+                    // clients.push(client::websocket_v50::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
+                    todo!()
                 }
                 (types::Protocol::Http, _) => {
                     todo!()
@@ -201,7 +204,7 @@ impl Group {
         let (tx, rx) = oneshot::channel::<()>();
 
         self.history_metrics = Some(history_metrics_2);
-        self.start_clients(job_finished_signal_tx, tx);
+        self.start_clients(job_finished_signal_tx, tx).await;
 
         let mill_cnt = self.publishes[0].1.tps / 1000;
         debug!("mill cnt {:?}", mill_cnt);
@@ -226,32 +229,38 @@ impl Group {
         };
         let payload = Arc::new(payload);
         let client_pos = 0;
-        let client_len = self.clients.read().await.len();
-        rx.await.unwrap();
+        let client_len = self.clients.len();
+        // rx.await.unwrap();
+        let mut pkid: u16 = 1;
         loop {
             select! {
                 _ = interval.tick() => {
-                    Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len).await;
+                    Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
                 }
             }
         }
     }
 
     async fn client_publish(
-        clients: &Arc<RwLock<Vec<Box<dyn Client>>>>,
+        clients: &Vec<Box<dyn Client>>,
         mut client_pos: usize,
         mill_cnt: usize,
         topic: &String,
         qos: mqtt::protocol::v3_mini::QoS,
         payload: &Arc<Bytes>,
         client_len: usize,
+        pkid: &mut u16,
     ) {
         for _ in 0..mill_cnt {
-            clients.read().await[client_pos]
-                .publish(topic.clone(), qos, payload.clone())
+            clients[client_pos]
+                .publish(topic.clone(), qos, payload.clone(), *pkid)
                 .await;
             client_pos += 1;
             client_pos %= client_len;
+
+            if client_pos == 0 {
+                *pkid += 1;
+            }
         }
     }
 
@@ -263,7 +272,7 @@ impl Group {
             }
         }
 
-        for client in self.clients.write().await.iter_mut() {
+        for client in self.clients.iter_mut() {
             client.stop().await;
         }
 
@@ -323,38 +332,36 @@ impl Group {
             .push((ts, client_usize_metrics, pakcet_usize_metrics));
     }
 
-    fn start_clients(
+    async fn start_clients(
         &mut self,
         job_finished_signal_tx: mpsc::UnboundedSender<()>,
         tx: oneshot::Sender<()>,
     ) {
-        let clients = self.clients.clone();
         let mut connect_interval = time::interval(time::Duration::from_millis(
             self.broker_info.connect_interval,
         ));
         let client_count = self.conf.client_count;
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut index = 0;
-        tokio::spawn(async move {
-            loop {
-                select! {
-                    _ = stop_signal_rx.recv() => {
-                        break;
-                    }
 
-                    _ = connect_interval.tick() => {
-                        if index < client_count {
-                            clients.write().await[index].start().await;
-                            index += 1;
-                        } else {
-                            job_finished_signal_tx.send(()).unwrap();
-                            tx.send(()).unwrap();
-                            break;
-                        }
+        loop {
+            select! {
+                _ = stop_signal_rx.recv() => {
+                    break;
+                }
+
+                _ = connect_interval.tick() => {
+                    if index < client_count {
+                        self.clients[index].start().await;
+                        index += 1;
+                    } else {
+                        job_finished_signal_tx.send(()).unwrap();
+                        tx.send(()).unwrap();
+                        break;
                     }
                 }
             }
-        });
+        }
     }
 
     pub async fn read(&self) -> ReadGroupResp {
@@ -420,61 +427,61 @@ impl Group {
         }
     }
 
-    pub async fn update(&mut self, req: GroupUpdateReq) -> Result<()> {
-        self.check_stopped()?;
+    // pub async fn update(&mut self, req: GroupUpdateReq) -> Result<()> {
+    //     self.check_stopped()?;
 
-        let need_update_client = Self::check_update_client(&self.conf, &req);
+    //     let need_update_client = Self::check_update_client(&self.conf, &req);
 
-        let client_group_conf = Arc::new(ClientGroupConf {
-            port: req.port,
-            ssl_conf: req.ssl_conf.clone(),
-        });
+    //     let client_group_conf = Arc::new(ClientGroupConf {
+    //         port: req.port,
+    //         ssl_conf: req.ssl_conf.clone(),
+    //     });
 
-        match self.conf.client_count.cmp(&req.client_count) {
-            std::cmp::Ordering::Less => {
-                let diff = req.client_count - self.conf.client_count;
-                if need_update_client {
-                    for client in self.clients.write().await.iter_mut() {
-                        client.update(client_group_conf.clone()).await;
-                    }
-                }
+    //     match self.conf.client_count.cmp(&req.client_count) {
+    //         std::cmp::Ordering::Less => {
+    //             let diff = req.client_count - self.conf.client_count;
+    //             if need_update_client {
+    //                 for client in self.clients.write().await.iter_mut() {
+    //                     client.update(client_group_conf.clone()).await;
+    //                 }
+    //             }
 
-                let new_clients = Self::new_clients(
-                    &self.id,
-                    self.conf.client_count,
-                    diff,
-                    &self.broker_info,
-                    &self.conf,
-                    client_group_conf,
-                    &self.client_metrics,
-                    &self.packet_metrics,
-                );
-                self.clients.write().await.extend(new_clients);
-            }
-            std::cmp::Ordering::Equal => {
-                // TODO client_id 变更问题
-                if need_update_client {
-                    for client in self.clients.write().await.iter_mut() {
-                        client.update(client_group_conf.clone()).await;
-                    }
-                }
-            }
-            std::cmp::Ordering::Greater => {
-                let diff = self.conf.client_count - req.client_count;
-                let mut client_guards = self.clients.write().await;
-                for _ in 0..diff {
-                    client_guards.pop().unwrap().stop().await;
-                }
-            }
-        }
+    //             let new_clients = Self::new_clients(
+    //                 &self.id,
+    //                 self.conf.client_count,
+    //                 diff,
+    //                 &self.broker_info,
+    //                 &self.conf,
+    //                 client_group_conf,
+    //                 &self.client_metrics,
+    //                 &self.packet_metrics,
+    //             );
+    //             self.clients.write().await.extend(new_clients);
+    //         }
+    //         std::cmp::Ordering::Equal => {
+    //             // TODO client_id 变更问题
+    //             if need_update_client {
+    //                 for client in self.clients.write().await.iter_mut() {
+    //                     client.update(client_group_conf.clone()).await;
+    //                 }
+    //             }
+    //         }
+    //         std::cmp::Ordering::Greater => {
+    //             let diff = self.conf.client_count - req.client_count;
+    //             let mut client_guards = self.clients.write().await;
+    //             for _ in 0..diff {
+    //                 client_guards.pop().unwrap().stop().await;
+    //             }
+    //         }
+    //     }
 
-        self.conf.name = req.name;
-        self.conf.client_count = req.client_count;
-        self.conf.port = req.port;
-        self.conf.ssl_conf = req.ssl_conf.clone();
+    //     self.conf.name = req.name;
+    //     self.conf.client_count = req.client_count;
+    //     self.conf.port = req.port;
+    //     self.conf.ssl_conf = req.ssl_conf.clone();
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub async fn create_publish(&mut self, req: PublishCreateUpdateReq) -> Result<()> {
         self.check_stopped()?;
@@ -529,59 +536,62 @@ impl Group {
         publish_id: String,
         req: PublishCreateUpdateReq,
     ) -> Result<()> {
-        self.check_stopped()?;
-        let req2 = req.clone();
-        let payload = match (req.size, req.payload) {
-            (None, Some(payload)) => payload.into(),
-            (Some(size), None) => {
-                let mut payload = Vec::with_capacity(size);
-                for _ in 0..size {
-                    payload.push(0);
-                }
-                payload
-            }
-            _ => bail!("请指定 payload 或 size"),
-        };
-        let conf = Arc::new(PublishConf {
-            name: req.name,
-            topic: req.topic,
-            qos: req.qos,
-            retain: req.retain,
-            tps: req.tps,
-            payload: Arc::new(payload),
-            v311: None,
-            v50: None,
-        });
-        for client in self.clients.write().await.iter_mut() {
-            client.update_publish(&publish_id, conf.clone());
-        }
-        self.publishes
-            .iter_mut()
-            .find(|(id, _)| **id == publish_id)
-            .unwrap()
-            .1 = req2;
-        Ok(())
+        todo!()
+        // self.check_stopped()?;
+        // let req2 = req.clone();
+        // let payload = match (req.size, req.payload) {
+        //     (None, Some(payload)) => payload.into(),
+        //     (Some(size), None) => {
+        //         let mut payload = Vec::with_capacity(size);
+        //         for _ in 0..size {
+        //             payload.push(0);
+        //         }
+        //         payload
+        //     }
+        //     _ => bail!("请指定 payload 或 size"),
+        // };
+        // let conf = Arc::new(PublishConf {
+        //     name: req.name,
+        //     topic: req.topic,
+        //     qos: req.qos,
+        //     retain: req.retain,
+        //     tps: req.tps,
+        //     payload: Arc::new(payload),
+        //     v311: None,
+        //     v50: None,
+        // });
+        // for client in self.clients.write().await.iter_mut() {
+        //     client.update_publish(&publish_id, conf.clone());
+        // }
+        // self.publishes
+        //     .iter_mut()
+        //     .find(|(id, _)| **id == publish_id)
+        //     .unwrap()
+        //     .1 = req2;
+        // Ok(())
     }
 
     pub async fn delete_publish(&mut self, publish_id: String) -> Result<()> {
-        self.check_stopped()?;
-        for client in self.clients.write().await.iter_mut() {
-            client.delete_publish(&publish_id);
-        }
-        self.subscribes.retain(|(id, _)| **id != publish_id);
-        Ok(())
+        todo!()
+        // self.check_stopped()?;
+        // for client in self.clients.write().await.iter_mut() {
+        //     client.delete_publish(&publish_id);
+        // }
+        // self.subscribes.retain(|(id, _)| **id != publish_id);
+        // Ok(())
     }
 
     pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) -> Result<()> {
-        self.check_stopped()?;
-        let id = Arc::new(generate_id());
-        let conf = Arc::new(req);
-        for client in self.clients.write().await.iter_mut() {
-            client.create_subscribe(id.clone(), conf.clone()).await;
-        }
+        todo!()
+        // self.check_stopped()?;
+        // let id = Arc::new(generate_id());
+        // let conf = Arc::new(req);
+        // for client in self.clients.write().await.iter_mut() {
+        //     client.create_subscribe(id.clone(), conf.clone()).await;
+        // }
 
-        self.subscribes.push((id, conf));
-        Ok(())
+        // self.subscribes.push((id, conf));
+        // Ok(())
     }
 
     pub async fn list_subscribes(&self) -> ListSubscribeResp {
@@ -600,38 +610,41 @@ impl Group {
         subscribe_id: String,
         req: SubscribeCreateUpdateReq,
     ) -> Result<()> {
-        self.check_stopped()?;
-        let conf = Arc::new(req);
-        for client in self.clients.write().await.iter_mut() {
-            client.update_subscribe(&subscribe_id, conf.clone()).await;
-        }
-        Ok(())
+        todo!()
+        // self.check_stopped()?;
+        // let conf = Arc::new(req);
+        // for client in self.clients.write().await.iter_mut() {
+        //     client.update_subscribe(&subscribe_id, conf.clone()).await;
+        // }
+        // Ok(())
     }
 
     pub async fn delete_subscribe(&mut self, subscribe_id: String) -> Result<()> {
-        self.check_stopped()?;
-        for client in self.clients.write().await.iter_mut() {
-            client.delete_subscribe(&subscribe_id).await;
-        }
-        self.subscribes.retain(|(id, _)| **id != subscribe_id);
-        Ok(())
+        todo!()
+        // self.check_stopped()?;
+        // for client in self.clients.write().await.iter_mut() {
+        //     client.delete_subscribe(&subscribe_id).await;
+        // }
+        // self.subscribes.retain(|(id, _)| **id != subscribe_id);
+        // Ok(())
     }
 
     pub async fn list_clients(&self, query: ClientsQueryParams) -> ClientsListResp {
-        let mut list = vec![];
-        let offset = (query.p - 1) * query.s;
-        let mut i = 0;
-        for client in self.clients.read().await.iter().skip(offset) {
-            i += 1;
-            if i >= query.s {
-                break;
-            }
-            list.push(client.read().await);
-        }
-        ClientsListResp {
-            count: self.clients.read().await.len(),
-            list,
-        }
+        todo!()
+        // let mut list = vec![];
+        // let offset = (query.p - 1) * query.s;
+        // let mut i = 0;
+        // for client in self.clients.read().await.iter().skip(offset) {
+        //     i += 1;
+        //     if i >= query.s {
+        //         break;
+        //     }
+        //     list.push(client.read().await);
+        // }
+        // ClientsListResp {
+        //     count: self.clients.read().await.len(),
+        //     list,
+        // }
     }
 
     pub async fn read_metrics(&self, query: MetricsQueryParams) -> MetricsListResp {
@@ -727,7 +740,7 @@ impl Group {
             }
         };
 
-        for client in self.clients.write().await.iter_mut() {
+        for client in self.clients.iter_mut() {
             client.update_status(client_status);
         }
     }

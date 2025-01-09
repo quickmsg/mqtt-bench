@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+use types::group::PacketAtomicMetrics;
 
 use crate::{
     protocol::{
@@ -52,14 +55,18 @@ impl Network {
 
     /// Read packets in bulk. This allow replies to be in bulk. This method is used
     /// after the connection is established to read a bunch of incoming packets
-    pub async fn readb(&mut self) -> Result<(), StateError> {
+    pub async fn readb(
+        &mut self,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+    ) -> Result<(), StateError> {
         // wait for the first read
         let mut res = self.framed.next().await;
         loop {
             match res {
                 Some(Ok(packet)) => {
-                    if let Some(outgoing) = state::handle_incoming_packet(packet)? {
-                        self.write(outgoing).await?;
+                    if let Some(outgoing) = state::handle_incoming_packet(packet, &packet_metrics)?
+                    {
+                        self.write(outgoing, &packet_metrics).await?;
                     }
                 }
                 Some(Err(protocol::v3_mini::Error::InsufficientBytes(_))) => unreachable!(),
@@ -77,7 +84,31 @@ impl Network {
     }
 
     /// Serializes packet into write buffer
-    pub async fn write(&mut self, packet: Packet) -> Result<(), StateError> {
+    pub async fn write(
+        &mut self,
+        packet: Packet,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+    ) -> Result<(), StateError> {
+        match &packet {
+            Packet::Connect(connect) => {}
+            Packet::ConnAck(conn_ack) => todo!(),
+            Packet::Publish(publish) => {
+                packet_metrics
+                    .outgoing_publish
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            Packet::PubAck(pub_ack) => todo!(),
+            Packet::PubRec(pub_rec) => todo!(),
+            Packet::PubRel(pub_rel) => todo!(),
+            Packet::PubComp(pub_comp) => todo!(),
+            Packet::Subscribe(subscribe) => todo!(),
+            Packet::SubAck(sub_ack) => todo!(),
+            Packet::Unsubscribe(unsubscribe) => todo!(),
+            Packet::UnsubAck(unsub_ack) => todo!(),
+            Packet::PingReq => todo!(),
+            Packet::PingResp => todo!(),
+            Packet::Disconnect => todo!(),
+        }
         self.framed
             .feed(packet)
             .await

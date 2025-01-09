@@ -1,4 +1,5 @@
 use tracing::error;
+use types::group::PacketAtomicMetrics;
 
 use crate::{
     protocol::{
@@ -11,7 +12,7 @@ use crate::{
     Incoming,
 };
 
-use std::io;
+use std::{io, sync::Arc};
 
 /// Errors during state handling
 #[derive(Debug, thiserror::Error)]
@@ -45,14 +46,47 @@ pub enum StateError {
 /// user to consume and `Packet` which for the eventloop to put on the network
 /// E.g For incoming QoS1 publish packet, this method returns (Publish, Puback). Publish packet will
 /// be forwarded to user and Pubck packet will be written to network
-pub fn handle_incoming_packet(packet: Incoming) -> Result<Option<Packet>, StateError> {
+pub fn handle_incoming_packet(
+    packet: Incoming,
+    packet_metrics: &Arc<PacketAtomicMetrics>,
+) -> Result<Option<Packet>, StateError> {
     let outgoing = match &packet {
-        Incoming::PingResp => handle_incoming_pingresp()?,
-        Incoming::Publish(publish) => handle_incoming_publish(publish)?,
-        Incoming::SubAck(_suback) => handle_incoming_suback()?,
-        Incoming::UnsubAck(_unsuback) => handle_incoming_unsuback()?,
-        Incoming::PubAck(puback) => handle_incoming_puback(puback)?,
-        Incoming::PubRec(pubrec) => handle_incoming_pubrec(pubrec)?,
+        Incoming::PingResp => {
+            packet_metrics
+                .ping_resp
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_pingresp()?
+        }
+        Incoming::Publish(publish) => {
+            packet_metrics
+                .incoming_publish
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_publish(publish)?
+        }
+        Incoming::SubAck(_suback) => {
+            packet_metrics
+                .sub_ack
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_suback()?
+        }
+        Incoming::UnsubAck(_unsuback) => {
+            packet_metrics
+                .unsub_ack
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_unsuback()?
+        }
+        Incoming::PubAck(puback) => {
+            packet_metrics
+                .pub_ack
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_puback(puback)?
+        }
+        Incoming::PubRec(pubrec) => {
+            packet_metrics
+                .pub_rec
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            handle_incoming_pubrec(pubrec)?
+        }
         Incoming::PubRel(pubrel) => handle_incoming_pubrel(pubrel)?,
         Incoming::PubComp(pubcomp) => handle_incoming_pubcomp(pubcomp)?,
         _ => {
