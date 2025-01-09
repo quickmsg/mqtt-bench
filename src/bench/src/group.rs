@@ -260,6 +260,9 @@ impl Group {
 
             if client_pos == 0 {
                 *pkid += 1;
+                if *pkid == u16::MAX {
+                    *pkid = 1;
+                }
             }
         }
     }
