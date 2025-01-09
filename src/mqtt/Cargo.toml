@@ -1,0 +1,12 @@
+[package]
+name = "mqtt"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+tokio-util = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+bitflags = { workspace = true }
+bytestring = { workspace = true }

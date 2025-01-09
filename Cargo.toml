@@ -6,6 +6,7 @@ members = [
     "src/types",
     "src/rumqttc",
     "src/cli",
+    "src/mqtt",
 ]
 resolver = "2"
 
@@ -23,10 +24,16 @@ tracing = "0.1.41"
 anyhow = "1.0.94"
 console-subscriber = "0.4.1"
 clap = { version = "4.5.23", features = ["derive"] }
+bytes = "1.9.0"
+tokio-util = { version = "0.7.13", features = ["codec"] }
+thiserror = "2.0.10"
+serde = { version = "1.0.217", features = ["derive"] }
+bitflags = "2.6.0"
+bytestring = "1.4.0"
 
 [profile.release]
-opt-level = "z" # 最小化大小
-lto = true      # 链接时优化
+opt-level = "z"   # 最小化大小
+lto = true        # 链接时优化
 codegen-units = 1 # 单一代码生成单元，优化效果更好
-panic = "abort"  # 减少 panic 信息的开销
-strip = true   
+panic = "abort"   # 减少 panic 信息的开销
+strip = true
