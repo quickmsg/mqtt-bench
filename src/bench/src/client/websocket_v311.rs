@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::lock::BiLock;
 use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions, Transport};
 use tokio::{select, sync::watch};
@@ -148,7 +149,7 @@ impl Client for WebsocketClientV311 {
         }
     }
 
-    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+    async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>) {
         // self.client
         //     .as_ref()
         //     .unwrap()

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::group::ClientGroupConf;
@@ -8,6 +9,7 @@ use crate::group::ClientGroupConf;
 pub mod mqtt_v311;
 pub mod mqtt_v50;
 mod ssl;
+mod ssl_new;
 mod v311;
 mod v50;
 pub mod websocket_v311;
@@ -24,7 +26,7 @@ pub trait Client: Sync + Send {
     fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
     fn delete_publish(&mut self, id: &String);
 
-    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>);
+    async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>);
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
     async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);

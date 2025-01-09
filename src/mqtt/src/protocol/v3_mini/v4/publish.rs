@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 use bytes::{Buf, Bytes};
 
@@ -9,34 +11,38 @@ pub struct Publish {
     pub retain: bool,
     pub topic: String,
     pub pkid: u16,
-    pub payload: Bytes,
+    pub payload: Option<Arc<Bytes>>,
 }
 
 impl Publish {
-    pub fn new<S: Into<String>, P: Into<Vec<u8>>>(topic: S, qos: QoS, payload: P) -> Publish {
+    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Bytes>) -> Publish {
         Publish {
             dup: false,
             qos,
             retain: false,
             pkid: 0,
             topic: topic.into(),
-            payload: Bytes::from(payload.into()),
+            payload: Some(payload),
         }
     }
 
-    pub fn from_bytes<S: Into<String>>(topic: S, qos: QoS, payload: Bytes) -> Publish {
-        Publish {
-            dup: false,
-            qos,
-            retain: false,
-            pkid: 0,
-            topic: topic.into(),
-            payload,
-        }
-    }
+    // pub fn from_bytes<S: Into<String>>(topic: S, qos: QoS, payload: Bytes) -> Publish {
+    //     Publish {
+    //         dup: false,
+    //         qos,
+    //         retain: false,
+    //         pkid: 0,
+    //         topic: topic.into(),
+    //         payload,
+    //     }
+    // }
 
     fn len(&self) -> usize {
-        let len = 2 + self.topic.len() + self.payload.len();
+        let payload_len = match self.payload {
+            Some(ref payload) => payload.len(),
+            None => 0,
+        };
+        let len = 2 + self.topic.len() + payload_len;
         if self.qos != QoS::AtMostOnce && self.pkid != 0 {
             len + 2
         } else {
@@ -76,7 +82,7 @@ impl Publish {
             qos,
             pkid,
             topic,
-            payload: bytes,
+            payload: None,
         };
 
         Ok(publish)
@@ -101,8 +107,7 @@ impl Publish {
 
             buffer.put_u16(pkid);
         }
-
-        buffer.extend_from_slice(&self.payload);
+        buffer.put_slice(&self.payload.as_ref().unwrap());
 
         Ok(1 + count + len)
     }
@@ -112,12 +117,12 @@ impl fmt::Debug for Publish {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Topic = {}, Qos = {:?}, Retain = {}, Pkid = {:?}, Payload Size = {}",
+            "Topic = {}, Qos = {:?}, Retain = {}, Pkid = {:?}",
             self.topic,
             self.qos,
             self.retain,
             self.pkid,
-            self.payload.len()
+            // self.payload.len()
         )
     }
 }

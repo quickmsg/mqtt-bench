@@ -3,9 +3,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::{
-    protocol::{self, v3_mini::v4::Codec},
+    protocol::{
+        self,
+        v3_mini::v4::{Codec, Packet},
+    },
     state::{self, StateError},
-    Incoming, Request,
+    Incoming,
 };
 
 /// Network transforms packets <-> frames efficiently. It takes
@@ -56,7 +59,7 @@ impl Network {
             match res {
                 Some(Ok(packet)) => {
                     if let Some(outgoing) = state::handle_incoming_packet(packet)? {
-                        self.write(Request::Packet(outgoing)).await?;
+                        self.write(outgoing).await?;
                     }
                 }
                 Some(Err(protocol::v3_mini::Error::InsufficientBytes(_))) => unreachable!(),
@@ -74,19 +77,11 @@ impl Network {
     }
 
     /// Serializes packet into write buffer
-    pub async fn write(&mut self, request: Request) -> Result<(), StateError> {
-        match request {
-            Request::Raw(vec) => {
-                self.framed.send(vec).await;
-                Ok(())
-            }
-
-            Request::Packet(packet) => self
-                .framed
-                .feed(packet)
-                .await
-                .map_err(StateError::Deserialization),
-        }
+    pub async fn write(&mut self, packet: Packet) -> Result<(), StateError> {
+        self.framed
+            .feed(packet)
+            .await
+            .map_err(StateError::Deserialization)
     }
 
     pub async fn flush(&mut self) -> Result<(), crate::state::StateError> {

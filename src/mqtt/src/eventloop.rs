@@ -1,12 +1,13 @@
 use flume::{bounded, Receiver, Sender};
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
 use tokio::{select, time};
+use tracing::error;
 
 use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
-use crate::state::{self, StateError};
+use crate::state::StateError;
+use crate::MqttOptions;
 use crate::{framed::Network, Transport};
 use crate::{Incoming, NetworkOptions};
-use crate::{MqttOptions, Request};
 
 use crate::framed::AsyncReadWrite;
 
@@ -66,9 +67,9 @@ pub struct EventLoop {
     /// Options of the current mqtt connection
     pub mqtt_options: MqttOptions,
     /// Request stream
-    requests_rx: Receiver<Request>,
+    requests_rx: Receiver<Packet>,
     /// Requests handle to send requests
-    pub(crate) requests_tx: Sender<Request>,
+    // pub(crate) requests_tx: Sender<Packet>,
     /// Network connection to the broker
     pub network: Option<Network>,
     pub network_options: NetworkOptions,
@@ -86,114 +87,88 @@ impl EventLoop {
     ///
     /// When connection encounters critical errors (like auth failure), user has a choice to
     /// access and update `options`, `state` and `requests`.
-    pub fn new(mqtt_options: MqttOptions, cap: usize) -> EventLoop {
+    pub async fn start(
+        mqtt_options: MqttOptions,
+        cap: usize,
+    ) -> Result<Sender<Packet>, ConnectionError> {
         let (requests_tx, requests_rx) = bounded(cap);
 
-        EventLoop {
+        let mut eventloop = EventLoop {
             mqtt_options,
-            requests_tx,
             requests_rx,
             network: None,
             network_options: NetworkOptions::new(),
-        }
+        };
+
+        let network = eventloop.connect().await?;
+        eventloop.run_long_time(network);
+
+        Ok(requests_tx)
     }
 
-    /// Yields Next notification or outgoing request and periodically pings
-    /// the broker. Continuing to poll will reconnect to the broker if there is
-    /// a disconnection.
-    /// **NOTE** Don't block this while iterating
-    pub async fn poll(&mut self) -> Result<(), ConnectionError> {
-        if self.network.is_none() {
-            let (network, connack) = match time::timeout(
-                Duration::from_secs(self.network_options.connection_timeout()),
-                connect(&self.mqtt_options, self.network_options.clone()),
-            )
-            .await
-            {
-                Ok(inner) => inner?,
-                Err(_) => return Err(ConnectionError::NetworkTimeout),
-            };
-            // Last session might contain packets which aren't acked. If it's a new session, clear the pending packets.
-            self.network = Some(network);
-
-            // return Ok(Event::Incoming(Packet::ConnAck(connack)));
-            // TODO
-        }
-
-        match self.select().await {
-            Ok(v) => Ok(()),
-            Err(e) => {
-                // MQTT requires that packets pending acknowledgement should be republished on session resume.
-                // Move pending messages from state to eventloop.
-                Err(e)
-            }
-        }
+    pub async fn connect(&mut self) -> Result<Network, ConnectionError> {
+        let (network, connack) = match time::timeout(
+            Duration::from_secs(self.network_options.connection_timeout()),
+            connect(&self.mqtt_options, self.network_options.clone()),
+        )
+        .await
+        {
+            Ok(inner) => inner?,
+            Err(_) => return Err(ConnectionError::NetworkTimeout),
+        };
+        // TODO conn ack
+        // Last session might contain packets which aren't acked. If it's a new session, clear the pending packets.
+        Ok(network)
     }
 
     /// Select on network and requests and generate keepalive pings when necessary
-    async fn select(&mut self) -> Result<(), ConnectionError> {
-        let network = self.network.as_mut().unwrap();
-        // let await_acks = self.state.await_acks;
-        let network_timeout = Duration::from_secs(self.network_options.connection_timeout());
+    fn run_long_time(self, mut network: Network) {
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    o = network.readb() => {
+                        match o {
+                            Ok(_) => {}
+                            Err(_) => {
+                                error!("network readb error");
+                                return;
+                            }
+                        }
+                        // flush all the acks and return first incoming packet
+                        match time::timeout(Duration::from_secs(1), network.flush()).await {
+                            // TODO
+                            Ok(inner) => inner.unwrap(),
+                            Err(_) => {
+                                error!("network Flush timeout");
+                                return
+                            }
+                        };
+                    }
 
-        // let mut no_sleep = Box::pin(time::sleep(Duration::ZERO));
-        // this loop is necessary since self.incoming.pop_front() might return None. In that case,
-        // instead of returning a None event, we try again.
-        select! {
-            // Pull a bunch of packets from network, reply in bunch and yield the first item
-            o = network.readb() => {
-                o?;
-                // flush all the acks and return first incoming packet
-                match time::timeout(network_timeout, network.flush()).await {
-                    Ok(inner) => inner?,
-                    Err(_)=> return Err(ConnectionError::FlushTimeout),
-                };
-                Ok(())
-            },
-             // Handles pending and new requests.
-            // If available, prioritises pending requests from previous session.
-            // Else, pulls next request from user requests channel.
-            // If conditions in the below branch are for flow control.
-            // The branch is disabled if there's no pending messages and new user requests
-            // cannot be serviced due flow control.
-            // We read next user user request only when inflight messages are < configured inflight
-            // and there are no collisions while handling previous outgoing requests.
-            //
-            // Flow control is based on ack count. If inflight packet count in the buffer is
-            // less than max_inflight setting, next outgoing request will progress. For this
-            // to work correctly, broker should ack in sequence (a lot of brokers won't)
-            //
-            // E.g If max inflight = 5, user requests will be blocked when inflight queue
-            // looks like this                 -> [1, 2, 3, 4, 5].
-            // If broker acking 2 instead of 1 -> [1, x, 3, 4, 5].
-            // This pulls next user request. But because max packet id = max_inflight, next
-            // user request's packet id will roll to 1. This replaces existing packet id 1.
-            // Resulting in a collision
-            //
-            // Eventloop can stop receiving outgoing user requests when previous outgoing
-            // request collided. I.e collision state. Collision state will be cleared only
-            // when correct ack is received
-            // Full inflight queue will look like -> [1a, 2, 3, 4, 5].
-            // If 3 is acked instead of 1 first   -> [1a, 2, x, 4, 5].
-            // After collision with pkid 1        -> [1b ,2, x, 4, 5].
-            // 1a is saved to state and event loop is set to collision mode stopping new
-            // outgoing requests (along with 1b).
-            o = Self::next_request(
-                &self.requests_rx,
-                self.mqtt_options.pending_throttle
-            ) =>
-              match o {
-                Ok(request) => {
-                    network.write(request).await?;
-                    match time::timeout(network_timeout, network.flush()).await {
-                        Ok(inner) => inner?,
-                        Err(_)=> return Err(ConnectionError::FlushTimeout),
-                    };
-                    Ok(())
+                    r = self.requests_rx.recv_async() => {
+                        match r {
+                            Ok(r) => {
+                                if let Err(e) = network.write(r).await {
+                                    error!("network write error: {:?}", e);
+                                    return;
+                                }
+                                match time::timeout(Duration::from_secs(1), network.flush()).await {
+                                    Ok(inner) => inner.unwrap(),
+                                    Err(_)=> {
+                                        error!("network Flush timeout");
+                                        return;
+                                    }
+                                };
+                            }
+                            Err(e) => {
+                                error!("requests_rx recv error: {:?}", e);
+                                return;
+                            }
+                        }
+                    }
                 }
-                Err(_) => Err(ConnectionError::RequestsDone),
-            },
-        }
+            }
+        });
     }
 
     pub fn network_options(&self) -> NetworkOptions {
@@ -203,23 +178,6 @@ impl EventLoop {
     pub fn set_network_options(&mut self, network_options: NetworkOptions) -> &mut Self {
         self.network_options = network_options;
         self
-    }
-
-    async fn next_request(
-        rx: &Receiver<Request>,
-        pending_throttle: Duration,
-    ) -> Result<Request, ConnectionError> {
-        if !pending.is_empty() {
-            time::sleep(pending_throttle).await;
-            // We must call .pop_front() AFTER sleep() otherwise we would have
-            // advanced the iterator but the future might be canceled before return
-            Ok(pending.pop_front().unwrap())
-        } else {
-            match rx.recv_async().await {
-                Ok(r) => Ok(r),
-                Err(_) => Err(ConnectionError::RequestsDone),
-            }
-        }
     }
 }
 
@@ -413,9 +371,7 @@ async fn mqtt_connect(
     connect.login = options.credentials();
 
     // send mqtt connect packet
-    network
-        .write(Request::Packet(Packet::Connect(connect)))
-        .await?;
+    network.write(Packet::Connect(connect)).await?;
     network.flush().await?;
 
     // validate connack

@@ -62,7 +62,7 @@ async fn main() {
         username: None,
         password: None,
         client_id: None,
-        connect_interval: 1,
+        connect_interval: 5,
         statistics_interval: 1,
         local_ips,
     })

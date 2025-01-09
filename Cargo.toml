@@ -16,6 +16,7 @@ edition = "2021"
 
 [workspace.dependencies]
 rumqttc = { path = "src/rumqttc", features = ["websocket"] }
+mqtt = { path = "src/mqtt" }
 api = { path = "src/api" }
 types = { path = "src/types" }
 bench = { path = "src/bench" }

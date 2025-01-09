@@ -46,9 +46,7 @@ impl Encoder<Packet> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        item.write(dst);
-        // dst.put_slice(&item);
-
+        item.write(dst)?;
         Ok(())
     }
 }

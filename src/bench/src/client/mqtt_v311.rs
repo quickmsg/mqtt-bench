@@ -1,10 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::lock::BiLock;
-use rumqttc::{AsyncClient, ConnectionError, Event, MqttOptions};
+use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
 use tokio::{select, sync::watch};
-use tracing::{debug, warn};
+use tracing::{error, warn};
 use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::{
@@ -14,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    ssl::get_ssl_config,
+    ssl_new::get_ssl_config,
     v311::{Publish, Subscribe},
     Client, ClientConf,
 };
@@ -52,27 +53,6 @@ pub fn new(
     })
 }
 
-impl MqttClientV311 {
-    async fn handle_event(
-        packet_metrics: &Arc<PacketAtomicMetrics>,
-        res: Result<Event, ConnectionError>,
-        error_manager: &mut ErrorManager,
-    ) -> bool {
-        match res {
-            Ok(event) => {
-                packet_metrics.handle_v311_event(event);
-                error_manager.put_ok().await;
-                true
-            }
-            Err(e) => {
-                warn!("客户端连接错误：{:?}", e);
-                error_manager.put_err(e.to_string()).await;
-                false
-            }
-        }
-    }
-}
-
 #[async_trait]
 impl Client for MqttClientV311 {
     async fn start(&mut self) {
@@ -87,8 +67,7 @@ impl Client for MqttClientV311 {
 
         if let Some(ssl_conf) = &self.group_conf.ssl_conf {
             let config = get_ssl_config(ssl_conf);
-            let transport =
-                rumqttc::Transport::Tls(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
+            let transport = mqtt::Transport::Tls(mqtt::TlsConfiguration::Rustls(Arc::new(config)));
             mqtt_options.set_transport(transport);
         }
 
@@ -107,11 +86,17 @@ impl Client for MqttClientV311 {
         }
 
         let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+        let client = match AsyncClient::new(mqtt_options, 8).await {
+            Ok(client) => client,
+            Err(e) => {
+                error!("客户端连接错误: {:?}", e);
+                return;
+            }
+        };
 
-        if let Some(local_ip) = &self.client_conf.local_ip {
-            eventloop.network_options.set_local_ip(local_ip);
-        }
+        // if let Some(local_ip) = &self.client_conf.local_ip {
+        //     eventloop.network_options.set_local_ip(local_ip);
+        // }
 
         self.client = Some(client);
         self.stop_signal_tx = Some(stop_signal_tx);
@@ -121,43 +106,26 @@ impl Client for MqttClientV311 {
         let (err1, err2) = BiLock::new(None);
         self.err = Some(err1);
 
-        tokio::spawn(async move {
-            let mut error_manager = ErrorManager::new(err2);
-            loop {
-                select! {
-                    _ = stop_signal_rx.changed() => {
-                        return;
-                    }
-
-                    event = eventloop.poll() => {
-                        if !Self::handle_event(&packet_metrics, event, &mut error_manager).await {
-                            return;
-                        }
-                    }
-                }
-            }
-        });
-
         // for publish in self.publishes.iter_mut() {
         //     publish.start(self.client.clone().unwrap());
         // }
 
-        for subscribe in self.subscribes.iter_mut() {
-            subscribe.start(self.client.as_ref().unwrap()).await;
-        }
+        // for subscribe in self.subscribes.iter_mut() {
+        //     subscribe.start(self.client.as_ref().unwrap()).await;
+        // }
     }
 
-    async fn publish(&self, topic: String, qos: rumqttc::QoS, payload: Arc<Vec<u8>>) {
+    async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>) {
+        let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload);
         self.client
             .as_ref()
             .unwrap()
-            .publish(topic.clone(), qos, false, payload)
-            .await
-            .unwrap();
+            .publish(Packet::Publish(packet))
+            .await;
     }
 
     async fn stop(&mut self) {
-        stop!(self);
+        // stop!(self);
     }
 
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {

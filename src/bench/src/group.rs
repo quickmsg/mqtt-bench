@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use bytes::Bytes;
 use futures::lock::BiLock;
 use tokio::{
     select,
@@ -209,18 +210,16 @@ impl Group {
 
         let topic = pulish.topic.clone();
         let qos = match pulish.qos {
-            types::Qos::AtMostOnce => rumqttc::QoS::AtMostOnce,
-            types::Qos::AtLeastOnce => rumqttc::QoS::AtLeastOnce,
-            types::Qos::ExactlyOnce => rumqttc::QoS::ExactlyOnce,
+            types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+            types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+            types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
         };
 
         let payload = match (pulish.size, pulish.payload) {
             (None, Some(payload)) => payload.into(),
             (Some(size), None) => {
-                let mut payload = Vec::with_capacity(size);
-                for _ in 0..size {
-                    payload.push(0);
-                }
+                let mut payload = Bytes::new();
+                for _ in 0..size {}
                 payload
             }
             _ => panic!("请指定 payload 或 size"),
@@ -243,8 +242,8 @@ impl Group {
         mut client_pos: usize,
         mill_cnt: usize,
         topic: &String,
-        qos: rumqttc::QoS,
-        payload: &Arc<Vec<u8>>,
+        qos: mqtt::protocol::v3_mini::QoS,
+        payload: &Arc<Bytes>,
         client_len: usize,
     ) {
         for _ in 0..mill_cnt {

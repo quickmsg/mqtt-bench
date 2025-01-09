@@ -110,11 +110,6 @@ mod state;
 mod tls;
 mod websockets;
 
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-};
-
 #[cfg(feature = "websocket")]
 type RequestModifierFn = Arc<
     dyn Fn(http::Request<()>) -> Pin<Box<dyn Future<Output = http::Request<()>> + Send>>
@@ -125,7 +120,7 @@ type RequestModifierFn = Arc<
 #[cfg(feature = "proxy")]
 mod proxy;
 
-pub use client::{AsyncClient, Connection, RecvError, RecvTimeoutError, TryRecvError};
+pub use client::{AsyncClient, RecvError, RecvTimeoutError, TryRecvError};
 pub use eventloop::{ConnectionError, Event, EventLoop};
 use protocol::v3_mini::v4::{
     Disconnect, Login, Packet, PingReq, PingResp, PubAck, PubComp, PubRec, PubRel, Publish, SubAck,
@@ -731,18 +726,16 @@ impl std::convert::TryFrom<url::Url> for MqttOptions {
 /// handled one by one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-    Raw(Arc<Vec<u8>>),
-    Packet(Packet),
-    // Publish(Publish),
-    // PubAck(PubAck),
-    // PubRec(PubRec),
-    // PubComp(PubComp),
-    // PubRel(PubRel),
-    // PingReq(PingReq),
-    // PingResp(PingResp),
-    // Subscribe(Subscribe),
-    // SubAck(SubAck),
-    // Unsubscribe(Unsubscribe),
-    // UnsubAck(UnsubAck),
-    // Disconnect(Disconnect),
+    Publish(Publish),
+    PubAck(PubAck),
+    PubRec(PubRec),
+    PubComp(PubComp),
+    PubRel(PubRel),
+    PingReq(PingReq),
+    PingResp(PingResp),
+    Subscribe(Subscribe),
+    SubAck(SubAck),
+    Unsubscribe(Unsubscribe),
+    UnsubAck(UnsubAck),
+    Disconnect(Disconnect),
 }

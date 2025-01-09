@@ -18,7 +18,7 @@ tokio-rustls = "0.26.1"
 async-tungstenite = "0.28.2"
 rustls-native-certs = "0.8.1"
 webpki = "0.22.4"
-flume = "0.11.1"
+flume = { version = "0.11.1", features = ["async"] }
 ws_stream_tungstenite = "0.14.0"
 fixedbitset = "0.5.7"
 futures-util = { workspace = true }

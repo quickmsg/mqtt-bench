@@ -4,7 +4,7 @@
 use flume::Sender;
 use tokio::runtime::Runtime;
 
-use crate::{EventLoop, MqttOptions, Request};
+use crate::{protocol::v3_mini::v4::Packet, ConnectionError, EventLoop, MqttOptions, Request};
 
 /// Client Error
 // #[derive(Debug, thiserror::Error)]
@@ -22,24 +22,21 @@ use crate::{EventLoop, MqttOptions, Request};
 /// from the broker, i.e. move ahead.
 #[derive(Clone, Debug)]
 pub struct AsyncClient {
-    request_tx: Sender<Request>,
+    request_tx: Sender<Packet>,
 }
 
 impl AsyncClient {
     /// Create a new `AsyncClient`.
     ///
     /// `cap` specifies the capacity of the bounded async channel.
-    pub fn new(options: MqttOptions, cap: usize) -> (AsyncClient, EventLoop) {
-        let eventloop = EventLoop::new(options, cap);
-        let request_tx = eventloop.requests_tx.clone();
-
+    pub async fn new(options: MqttOptions, cap: usize) -> Result<AsyncClient, ConnectionError> {
+        let request_tx = EventLoop::start(options, cap).await?;
         let client = AsyncClient { request_tx };
-
-        (client, eventloop)
+        Ok(client)
     }
 
-    pub async fn publish(&self, payload: Request) {
-        self.request_tx.send_async(payload).await;
+    pub async fn publish(&self, payload: Packet) {
+        self.request_tx.send_async(payload).await.unwrap();
     }
 }
 
@@ -63,15 +60,4 @@ pub enum RecvTimeoutError {
     Disconnected,
     /// Recv request timedout
     Timeout,
-}
-
-///  MQTT connection. Maintains all the necessary state
-pub struct Connection {
-    pub eventloop: EventLoop,
-    runtime: Runtime,
-}
-impl Connection {
-    fn new(eventloop: EventLoop, runtime: Runtime) -> Connection {
-        Connection { eventloop, runtime }
-    }
 }
