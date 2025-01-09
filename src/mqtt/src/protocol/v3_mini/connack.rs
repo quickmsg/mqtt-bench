@@ -15,18 +15,15 @@ pub enum ConnectReturnCode {
 
 /// Acknowledgement to connect packet
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnAck {
-    pub session_present: bool,
-    pub code: ConnectReturnCode,
-}
+pub struct ConnAck;
 
 impl ConnAck {
-    pub fn new(code: ConnectReturnCode, session_present: bool) -> ConnAck {
-        ConnAck {
-            session_present,
-            code,
-        }
-    }
+    // pub fn new(code: ConnectReturnCode, session_present: bool) -> ConnAck {
+    //     ConnAck {
+    //         session_present,
+    //         code,
+    //     }
+    // }
 
     fn len(&self) -> usize {
         // sesssion present + code
@@ -38,17 +35,17 @@ impl ConnAck {
         let variable_header_index = fixed_header.fixed_header_len;
         bytes.advance(variable_header_index);
 
-        let flags = read_u8(&mut bytes)?;
-        let return_code = read_u8(&mut bytes)?;
+        // let flags = read_u8(&mut bytes)?;
+        // let return_code = read_u8(&mut bytes)?;
 
-        let session_present = (flags & 0x01) == 1;
-        let code = connect_return(return_code)?;
-        let connack = ConnAck {
-            session_present,
-            code,
-        };
+        // let session_present = (flags & 0x01) == 1;
+        // let code = connect_return(return_code)?;
+        // let connack = ConnAck {
+        //     session_present,
+        //     code,
+        // };
 
-        Ok(connack)
+        Ok(Self {})
     }
 
     pub fn write(&self, buffer: &mut BytesMut) -> Result<usize, Error> {
