@@ -1,13 +1,18 @@
+use flume::{bounded, Receiver, Sender};
+use tokio::net::{lookup_host, TcpSocket, TcpStream};
+use tokio::{select, time};
+
+use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
+use crate::state::{self, StateError};
 use crate::{framed::Network, Transport};
-use crate::{Incoming, NetworkOptions, Request};
-use crate::{MqttOptions, Outgoing};
+use crate::{Incoming, NetworkOptions};
+use crate::{MqttOptions, Request};
 
 use crate::framed::AsyncReadWrite;
 
-use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(unix)]
@@ -33,30 +38,25 @@ pub enum ConnectionError {
     NetworkTimeout,
     #[error("Flush timeout")]
     FlushTimeout,
-    #[cfg(feature = "websocket")]
     #[error("Websocket: {0}")]
     Websocket(#[from] async_tungstenite::tungstenite::error::Error),
-    #[cfg(feature = "websocket")]
     #[error("Websocket Connect: {0}")]
     WsConnect(#[from] http::Error),
-    #[cfg(any(feature = "use-rustls", feature = "use-native-tls"))]
     #[error("TLS: {0}")]
     Tls(#[from] tls::Error),
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("Connection refused, return code: `{0:?}`")]
     ConnectionRefused(ConnectReturnCode),
-    #[error("Expected ConnAck packet, received: {0:?}")]
-    NotConnAck(Packet),
+    #[error("Expected ConnAck packet, received: ")]
+    NotConnAck,
     #[error("Requests done")]
     RequestsDone,
-    #[cfg(feature = "websocket")]
     #[error("Invalid Url: {0}")]
     InvalidUrl(#[from] UrlError),
     #[cfg(feature = "proxy")]
     #[error("Proxy Connect: {0}")]
     Proxy(#[from] ProxyError),
-    #[cfg(feature = "websocket")]
     #[error("Websocket response validation error: ")]
     ResponseValidation(#[from] crate::websockets::ValidationError),
 }
@@ -65,18 +65,12 @@ pub enum ConnectionError {
 pub struct EventLoop {
     /// Options of the current mqtt connection
     pub mqtt_options: MqttOptions,
-    /// Current state of the connection
-    pub state: MqttState,
     /// Request stream
     requests_rx: Receiver<Request>,
     /// Requests handle to send requests
     pub(crate) requests_tx: Sender<Request>,
-    /// Pending packets from last session
-    pub pending: VecDeque<Request>,
     /// Network connection to the broker
     pub network: Option<Network>,
-    /// Keep alive time
-    keepalive_timeout: Option<Pin<Box<Sleep>>>,
     pub network_options: NetworkOptions,
 }
 
@@ -84,7 +78,7 @@ pub struct EventLoop {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Incoming(Incoming),
-    Outgoing(Outgoing),
+    Outgoing(Arc<Vec<u8>>),
 }
 
 impl EventLoop {
@@ -94,52 +88,21 @@ impl EventLoop {
     /// access and update `options`, `state` and `requests`.
     pub fn new(mqtt_options: MqttOptions, cap: usize) -> EventLoop {
         let (requests_tx, requests_rx) = bounded(cap);
-        let pending = VecDeque::new();
-        let max_inflight = mqtt_options.inflight;
-        let manual_acks = mqtt_options.manual_acks;
 
         EventLoop {
             mqtt_options,
-            state: MqttState::new(max_inflight, manual_acks),
             requests_tx,
             requests_rx,
-            pending,
             network: None,
-            keepalive_timeout: None,
             network_options: NetworkOptions::new(),
         }
-    }
-
-    /// Last session might contain packets which aren't acked. MQTT says these packets should be
-    /// republished in the next session. Move pending messages from state to eventloop, drops the
-    /// underlying network connection and clears the keepalive timeout if any.
-    ///
-    /// > NOTE: Use only when EventLoop is blocked on network and unable to immediately handle disconnect.
-    /// > Also, while this helps prevent data loss, the pending list length should be managed properly.
-    /// > For this reason we recommend setting [`AsycClient`](crate::AsyncClient)'s channel capacity to `0`.
-    pub fn clean(&mut self) {
-        self.network = None;
-        self.keepalive_timeout = None;
-        self.pending.extend(self.state.clean());
-
-        // drain requests from channel which weren't yet received
-        let mut requests_in_channel: Vec<_> = self.requests_rx.drain().collect();
-
-        requests_in_channel.retain(|request| {
-            match request {
-                Request::PubAck(_) => false, // Wait for publish retransmission, else the broker could be confused by an unexpected ack
-                _ => true,
-            }
-        });
-
-        self.pending.extend(requests_in_channel);
     }
 
     /// Yields Next notification or outgoing request and periodically pings
     /// the broker. Continuing to poll will reconnect to the broker if there is
     /// a disconnection.
     /// **NOTE** Don't block this while iterating
-    pub async fn poll(&mut self) -> Result<Event, ConnectionError> {
+    pub async fn poll(&mut self) -> Result<(), ConnectionError> {
         if self.network.is_none() {
             let (network, connack) = match time::timeout(
                 Duration::from_secs(self.network_options.connection_timeout()),
@@ -151,55 +114,41 @@ impl EventLoop {
                 Err(_) => return Err(ConnectionError::NetworkTimeout),
             };
             // Last session might contain packets which aren't acked. If it's a new session, clear the pending packets.
-            if !connack.session_present {
-                self.pending.clear();
-            }
             self.network = Some(network);
 
-            if self.keepalive_timeout.is_none() && !self.mqtt_options.keep_alive.is_zero() {
-                self.keepalive_timeout = Some(Box::pin(time::sleep(self.mqtt_options.keep_alive)));
-            }
-
-            return Ok(Event::Incoming(Packet::ConnAck(connack)));
+            // return Ok(Event::Incoming(Packet::ConnAck(connack)));
+            // TODO
         }
 
         match self.select().await {
-            Ok(v) => Ok(v),
+            Ok(v) => Ok(()),
             Err(e) => {
                 // MQTT requires that packets pending acknowledgement should be republished on session resume.
                 // Move pending messages from state to eventloop.
-                self.clean();
                 Err(e)
             }
         }
     }
 
     /// Select on network and requests and generate keepalive pings when necessary
-    async fn select(&mut self) -> Result<Event, ConnectionError> {
+    async fn select(&mut self) -> Result<(), ConnectionError> {
         let network = self.network.as_mut().unwrap();
         // let await_acks = self.state.await_acks;
-        let inflight_full = self.state.inflight >= self.mqtt_options.inflight;
-        let collision = self.state.collision.is_some();
         let network_timeout = Duration::from_secs(self.network_options.connection_timeout());
 
-        // Read buffered events from previous polls before calling a new poll
-        if let Some(event) = self.state.events.pop_front() {
-            return Ok(event);
-        }
-
-        let mut no_sleep = Box::pin(time::sleep(Duration::ZERO));
+        // let mut no_sleep = Box::pin(time::sleep(Duration::ZERO));
         // this loop is necessary since self.incoming.pop_front() might return None. In that case,
         // instead of returning a None event, we try again.
         select! {
             // Pull a bunch of packets from network, reply in bunch and yield the first item
-            o = network.readb(&mut self.state) => {
+            o = network.readb() => {
                 o?;
                 // flush all the acks and return first incoming packet
                 match time::timeout(network_timeout, network.flush()).await {
                     Ok(inner) => inner?,
                     Err(_)=> return Err(ConnectionError::FlushTimeout),
                 };
-                Ok(self.state.events.pop_front().unwrap())
+                Ok(())
             },
              // Handles pending and new requests.
             // If available, prioritises pending requests from previous session.
@@ -230,38 +179,20 @@ impl EventLoop {
             // 1a is saved to state and event loop is set to collision mode stopping new
             // outgoing requests (along with 1b).
             o = Self::next_request(
-                &mut self.pending,
                 &self.requests_rx,
                 self.mqtt_options.pending_throttle
-            ), if !self.pending.is_empty() || (!inflight_full && !collision) => match o {
+            ) =>
+              match o {
                 Ok(request) => {
-                    if let Some(outgoing) = self.state.handle_outgoing_packet(request)? {
-                        network.write(outgoing).await?;
-                    }
+                    network.write(request).await?;
                     match time::timeout(network_timeout, network.flush()).await {
                         Ok(inner) => inner?,
                         Err(_)=> return Err(ConnectionError::FlushTimeout),
                     };
-                    Ok(self.state.events.pop_front().unwrap())
+                    Ok(())
                 }
                 Err(_) => Err(ConnectionError::RequestsDone),
             },
-            // We generate pings irrespective of network activity. This keeps the ping logic
-            // simple. We can change this behavior in future if necessary (to prevent extra pings)
-            _ = self.keepalive_timeout.as_mut().unwrap_or(&mut no_sleep),
-                if self.keepalive_timeout.is_some() && !self.mqtt_options.keep_alive.is_zero() => {
-                let timeout = self.keepalive_timeout.as_mut().unwrap();
-                timeout.as_mut().reset(Instant::now() + self.mqtt_options.keep_alive);
-
-                if let Some(outgoing) = self.state.handle_outgoing_packet(Request::PingReq(PingReq))? {
-                    network.write(outgoing).await?;
-                }
-                match time::timeout(network_timeout, network.flush()).await {
-                    Ok(inner) => inner?,
-                    Err(_)=> return Err(ConnectionError::FlushTimeout),
-                };
-                Ok(self.state.events.pop_front().unwrap())
-            }
         }
     }
 
@@ -275,7 +206,6 @@ impl EventLoop {
     }
 
     async fn next_request(
-        pending: &mut VecDeque<Request>,
         rx: &Receiver<Request>,
         pending_throttle: Duration,
     ) -> Result<Request, ConnectionError> {
@@ -419,52 +349,54 @@ async fn network_connect(
         }
         #[cfg(unix)]
         Transport::Unix => unreachable!(),
-        Transport::Ws => {
-            let mut request = options.broker_addr.as_str().into_client_request()?;
-            request
-                .headers_mut()
-                .insert("Sec-WebSocket-Protocol", "mqtt".parse().unwrap());
+        Transport::Ws => todo!(),
+        Transport::Wss(tls_configuration) => todo!(),
+        // Transport::Ws => {
+        //     let mut request = options.broker_addr.as_str().into_client_request()?;
+        //     request
+        //         .headers_mut()
+        //         .insert("Sec-WebSocket-Protocol", "mqtt".parse().unwrap());
 
-            if let Some(request_modifier) = options.request_modifier() {
-                request = request_modifier(request).await;
-            }
+        //     if let Some(request_modifier) = options.request_modifier() {
+        //         request = request_modifier(request).await;
+        //     }
 
-            let (socket, response) =
-                async_tungstenite::tokio::client_async(request, tcp_stream).await?;
-            validate_response_headers(response)?;
+        //     let (socket, response) =
+        //         async_tungstenite::tokio::client_async(request, tcp_stream).await?;
+        //     validate_response_headers(response)?;
 
-            Network::new(
-                WsStream::new(socket),
-                options.max_incoming_packet_size,
-                options.max_outgoing_packet_size,
-            )
-        }
-        Transport::Wss(tls_config) => {
-            let mut request = options.broker_addr.as_str().into_client_request()?;
-            request
-                .headers_mut()
-                .insert("Sec-WebSocket-Protocol", "mqtt".parse().unwrap());
+        //     Network::new(
+        //         WsStream::new(socket),
+        //         options.max_incoming_packet_size,
+        //         options.max_outgoing_packet_size,
+        //     )
+        // }
+        // Transport::Wss(tls_config) => {
+        //     let mut request = options.broker_addr.as_str().into_client_request()?;
+        //     request
+        //         .headers_mut()
+        //         .insert("Sec-WebSocket-Protocol", "mqtt".parse().unwrap());
 
-            if let Some(request_modifier) = options.request_modifier() {
-                request = request_modifier(request).await;
-            }
+        //     if let Some(request_modifier) = options.request_modifier() {
+        //         request = request_modifier(request).await;
+        //     }
 
-            let connector = tls::rustls_connector(&tls_config).await?;
+        //     let connector = tls::rustls_connector(&tls_config).await?;
 
-            let (socket, response) = async_tungstenite::tokio::client_async_tls_with_connector(
-                request,
-                tcp_stream,
-                Some(connector),
-            )
-            .await?;
-            validate_response_headers(response)?;
+        //     let (socket, response) = async_tungstenite::tokio::client_async_tls_with_connector(
+        //         request,
+        //         tcp_stream,
+        //         Some(connector),
+        //     )
+        //     .await?;
+        //     validate_response_headers(response)?;
 
-            Network::new(
-                WsStream::new(socket),
-                options.max_incoming_packet_size,
-                options.max_outgoing_packet_size,
-            )
-        }
+        //     Network::new(
+        //         WsStream::new(socket),
+        //         options.max_incoming_packet_size,
+        //         options.max_outgoing_packet_size,
+        //     )
+        // }
     };
 
     Ok(network)
@@ -477,17 +409,19 @@ async fn mqtt_connect(
     let mut connect = Connect::new(options.client_id());
     connect.keep_alive = options.keep_alive().as_secs() as u16;
     connect.clean_session = options.clean_session();
-    connect.last_will = options.last_will();
+    // connect.last_will = options.last_will();
     connect.login = options.credentials();
 
     // send mqtt connect packet
-    network.write(Packet::Connect(connect)).await?;
+    network
+        .write(Request::Packet(Packet::Connect(connect)))
+        .await?;
     network.flush().await?;
 
     // validate connack
     match network.read().await? {
         Incoming::ConnAck(connack) if connack.code == ConnectReturnCode::Success => Ok(connack),
         Incoming::ConnAck(connack) => Err(ConnectionError::ConnectionRefused(connack.code)),
-        packet => Err(ConnectionError::NotConnAck(packet)),
+        _packet => Err(ConnectionError::NotConnAck),
     }
 }

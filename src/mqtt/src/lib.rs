@@ -106,9 +106,8 @@ mod eventloop;
 mod framed;
 // pub mod v5;
 pub mod protocol;
-
+mod state;
 mod tls;
-
 mod websockets;
 
 use std::{
@@ -126,10 +125,12 @@ type RequestModifierFn = Arc<
 #[cfg(feature = "proxy")]
 mod proxy;
 
-pub use client::{
-    AsyncClient, ClientError, Connection, Iter, RecvError, RecvTimeoutError, TryRecvError,
-};
+pub use client::{AsyncClient, Connection, RecvError, RecvTimeoutError, TryRecvError};
 pub use eventloop::{ConnectionError, Event, EventLoop};
+use protocol::v3_mini::v4::{
+    Disconnect, Login, Packet, PingReq, PingResp, PubAck, PubComp, PubRec, PubRel, Publish, SubAck,
+    Subscribe, UnsubAck, Unsubscribe,
+};
 // pub use mqttbytes::v4::*;
 // pub use mqttbytes::*;
 use rustls_native_certs::load_native_certs;
@@ -142,69 +143,6 @@ pub use proxy::{Proxy, ProxyAuth, ProxyType};
 
 pub type Incoming = Packet;
 
-/// Current outgoing activity on the eventloop
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Outgoing {
-    /// Publish packet with packet identifier. 0 implies QoS 0
-    Publish(u16),
-    /// Subscribe packet with packet identifier
-    Subscribe(u16),
-    /// Unsubscribe packet with packet identifier
-    Unsubscribe(u16),
-    /// PubAck packet
-    PubAck(u16),
-    /// PubRec packet
-    PubRec(u16),
-    /// PubRel packet
-    PubRel(u16),
-    /// PubComp packet
-    PubComp(u16),
-    /// Ping request packet
-    PingReq,
-    /// Ping response packet
-    PingResp,
-    /// Disconnect packet
-    Disconnect,
-    /// Await for an ack for more outgoing progress
-    AwaitAck(u16),
-}
-
-/// Requests by the client to mqtt event loop. Request are
-/// handled one by one.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Request {
-    Publish(Publish),
-    PubAck(PubAck),
-    PubRec(PubRec),
-    PubComp(PubComp),
-    PubRel(PubRel),
-    PingReq(PingReq),
-    PingResp(PingResp),
-    Subscribe(Subscribe),
-    SubAck(SubAck),
-    Unsubscribe(Unsubscribe),
-    UnsubAck(UnsubAck),
-    Disconnect(Disconnect),
-}
-
-impl From<Publish> for Request {
-    fn from(publish: Publish) -> Request {
-        Request::Publish(publish)
-    }
-}
-
-impl From<Subscribe> for Request {
-    fn from(subscribe: Subscribe) -> Request {
-        Request::Subscribe(subscribe)
-    }
-}
-
-impl From<Unsubscribe> for Request {
-    fn from(unsubscribe: Unsubscribe) -> Request {
-        Request::Unsubscribe(unsubscribe)
-    }
-}
-
 /// Transport methods. Defaults to TCP.
 #[derive(Clone)]
 pub enum Transport {
@@ -212,11 +150,7 @@ pub enum Transport {
     Tls(TlsConfiguration),
     #[cfg(unix)]
     Unix,
-    #[cfg(feature = "websocket")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
     Ws,
-    #[cfg(all(feature = "use-rustls", feature = "websocket"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "use-rustls", feature = "websocket"))))]
     Wss(TlsConfiguration),
 }
 
@@ -232,13 +166,10 @@ impl Transport {
         Self::Tcp
     }
 
-    #[cfg(feature = "use-rustls")]
     pub fn tls_with_default_config() -> Self {
         Self::tls_with_config(Default::default())
     }
 
-    /// Use secure tcp with tls as transport
-    #[cfg(feature = "use-rustls")]
     pub fn tls(
         ca: Vec<u8>,
         client_auth: Option<(Vec<u8>, Vec<u8>)>,
@@ -253,7 +184,6 @@ impl Transport {
         Self::tls_with_config(config)
     }
 
-    #[cfg(any(feature = "use-rustls", feature = "use-native-tls"))]
     pub fn tls_with_config(tls_config: TlsConfiguration) -> Self {
         Self::Tls(tls_config)
     }
@@ -263,16 +193,10 @@ impl Transport {
         Self::Unix
     }
 
-    /// Use websockets as transport
-    #[cfg(feature = "websocket")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "websocket")))]
     pub fn ws() -> Self {
         Self::Ws
     }
 
-    /// Use secure websockets with tls as transport
-    #[cfg(all(feature = "use-rustls", feature = "websocket"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "use-rustls", feature = "websocket"))))]
     pub fn wss(
         ca: Vec<u8>,
         client_auth: Option<(Vec<u8>, Vec<u8>)>,
@@ -287,14 +211,10 @@ impl Transport {
         Self::wss_with_config(config)
     }
 
-    #[cfg(all(feature = "use-rustls", feature = "websocket"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "use-rustls", feature = "websocket"))))]
     pub fn wss_with_config(tls_config: TlsConfiguration) -> Self {
         Self::Wss(tls_config)
     }
 
-    #[cfg(all(feature = "use-rustls", feature = "websocket"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "use-rustls", feature = "websocket"))))]
     pub fn wss_with_default_config() -> Self {
         Self::Wss(Default::default())
     }
@@ -303,7 +223,6 @@ impl Transport {
 /// TLS configuration method
 #[derive(Clone, Debug)]
 pub enum TlsConfiguration {
-    #[cfg(feature = "use-rustls")]
     Simple {
         /// ca certificate
         ca: Vec<u8>,
@@ -312,26 +231,11 @@ pub enum TlsConfiguration {
         /// tls client_authentication
         client_auth: Option<(Vec<u8>, Vec<u8>)>,
     },
-    #[cfg(feature = "use-native-tls")]
-    SimpleNative {
-        /// ca certificate
-        ca: Vec<u8>,
-        /// pkcs12 binary der and
-        /// password for use with der
-        client_auth: Option<(Vec<u8>, String)>,
-    },
-    #[cfg(feature = "use-rustls")]
+
     /// Injected rustls ClientConfig for TLS, to allow more customisation.
     Rustls(Arc<ClientConfig>),
-    #[cfg(feature = "use-native-tls")]
-    /// Use default native-tls configuration
-    Native,
-    #[cfg(feature = "use-native-tls")]
-    /// Injected native-tls TlsConnector for TLS, to allow more customisation.
-    NativeConnector(TlsConnector),
 }
 
-#[cfg(feature = "use-rustls")]
 impl Default for TlsConfiguration {
     fn default() -> Self {
         let mut root_cert_store = RootCertStore::empty();
@@ -346,17 +250,9 @@ impl Default for TlsConfiguration {
     }
 }
 
-#[cfg(feature = "use-rustls")]
 impl From<ClientConfig> for TlsConfiguration {
     fn from(config: ClientConfig) -> Self {
         TlsConfiguration::Rustls(Arc::new(config))
-    }
-}
-
-#[cfg(feature = "use-native-tls")]
-impl From<TlsConnector> for TlsConfiguration {
-    fn from(connector: TlsConnector) -> Self {
-        TlsConfiguration::NativeConnector(connector)
     }
 }
 
@@ -450,17 +346,10 @@ pub struct MqttOptions {
     /// while retransmitting pending packets
     pending_throttle: Duration,
     /// maximum number of outgoing inflight messages
-    inflight: u16,
-    /// Last will that will be issued on unexpected disconnect
-    last_will: Option<LastWill>,
-    /// If set to `true` MQTT acknowledgements are not sent automatically.
-    /// Every incoming publish packet must be manually acknowledged with `client.ack(...)` method.
-    manual_acks: bool,
+    // last_will: Option<LastWill>,
     #[cfg(feature = "proxy")]
     /// Proxy configuration.
     proxy: Option<Proxy>,
-    #[cfg(feature = "websocket")]
-    request_modifier: Option<RequestModifierFn>,
 }
 
 impl MqttOptions {
@@ -487,13 +376,8 @@ impl MqttOptions {
             request_channel_capacity: 10,
             max_request_batch: 0,
             pending_throttle: Duration::from_micros(0),
-            inflight: 100,
-            last_will: None,
-            manual_acks: false,
             #[cfg(feature = "proxy")]
             proxy: None,
-            #[cfg(feature = "websocket")]
-            request_modifier: None,
         }
     }
 
@@ -533,15 +417,6 @@ impl MqttOptions {
     /// Broker address
     pub fn broker_address(&self) -> (String, u16) {
         (self.broker_addr.clone(), self.port)
-    }
-
-    pub fn set_last_will(&mut self, will: LastWill) -> &mut Self {
-        self.last_will = Some(will);
-        self
-    }
-
-    pub fn last_will(&self) -> Option<LastWill> {
-        self.last_will.clone()
     }
 
     pub fn set_transport(&mut self, transport: Transport) -> &mut Self {
@@ -653,30 +528,6 @@ impl MqttOptions {
     /// Outgoing message rate
     pub fn pending_throttle(&self) -> Duration {
         self.pending_throttle
-    }
-
-    /// Set number of concurrent in flight messages
-    pub fn set_inflight(&mut self, inflight: u16) -> &mut Self {
-        assert!(inflight != 0, "zero in flight is not allowed");
-
-        self.inflight = inflight;
-        self
-    }
-
-    /// Number of concurrent in flight messages
-    pub fn inflight(&self) -> u16 {
-        self.inflight
-    }
-
-    /// set manual acknowledgements
-    pub fn set_manual_acks(&mut self, manual_acks: bool) -> &mut Self {
-        self.manual_acks = manual_acks;
-        self
-    }
-
-    /// get manual acknowledgements
-    pub fn manual_acks(&self) -> bool {
-        self.manual_acks
     }
 
     #[cfg(feature = "proxy")]
@@ -876,124 +727,22 @@ impl std::convert::TryFrom<url::Url> for MqttOptions {
     }
 }
 
-// Implement Debug manually because ClientConfig doesn't implement it, so derive(Debug) doesn't
-// work.
-impl Debug for MqttOptions {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        f.debug_struct("MqttOptions")
-            .field("broker_addr", &self.broker_addr)
-            .field("port", &self.port)
-            .field("keep_alive", &self.keep_alive)
-            .field("clean_session", &self.clean_session)
-            .field("client_id", &self.client_id)
-            .field("credentials", &self.credentials)
-            .field("max_packet_size", &self.max_incoming_packet_size)
-            .field("request_channel_capacity", &self.request_channel_capacity)
-            .field("max_request_batch", &self.max_request_batch)
-            .field("pending_throttle", &self.pending_throttle)
-            .field("inflight", &self.inflight)
-            .field("last_will", &self.last_will)
-            .field("manual_acks", &self.manual_acks)
-            .finish()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    #[cfg(all(feature = "use-rustls", feature = "websocket"))]
-    fn no_scheme() {
-        let mut mqttoptions = MqttOptions::new("client_a", "a3f8czas.iot.eu-west-1.amazonaws.com/mqtt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=MyCreds%2F20201001%2Feu-west-1%2Fiotdevicegateway%2Faws4_request&X-Amz-Date=20201001T130812Z&X-Amz-Expires=7200&X-Amz-Signature=9ae09b49896f44270f2707551581953e6cac71a4ccf34c7c3415555be751b2d1&X-Amz-SignedHeaders=host", 443);
-
-        mqttoptions.set_transport(crate::Transport::wss(Vec::from("Test CA"), None, None));
-
-        if let crate::Transport::Wss(TlsConfiguration::Simple {
-            ca,
-            client_auth,
-            alpn,
-        }) = mqttoptions.transport
-        {
-            assert_eq!(ca, Vec::from("Test CA"));
-            assert_eq!(client_auth, None);
-            assert_eq!(alpn, None);
-        } else {
-            panic!("Unexpected transport!");
-        }
-
-        assert_eq!(mqttoptions.broker_addr, "a3f8czas.iot.eu-west-1.amazonaws.com/mqtt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=MyCreds%2F20201001%2Feu-west-1%2Fiotdevicegateway%2Faws4_request&X-Amz-Date=20201001T130812Z&X-Amz-Expires=7200&X-Amz-Signature=9ae09b49896f44270f2707551581953e6cac71a4ccf34c7c3415555be751b2d1&X-Amz-SignedHeaders=host");
-    }
-
-    #[test]
-    #[cfg(feature = "url")]
-    fn from_url() {
-        fn opt(s: &str) -> Result<MqttOptions, OptionError> {
-            MqttOptions::parse_url(s)
-        }
-        fn ok(s: &str) -> MqttOptions {
-            opt(s).expect("valid options")
-        }
-        fn err(s: &str) -> OptionError {
-            opt(s).expect_err("invalid options")
-        }
-
-        let v = ok("mqtt://host:42?client_id=foo");
-        assert_eq!(v.broker_address(), ("host".to_owned(), 42));
-        assert_eq!(v.client_id(), "foo".to_owned());
-
-        let v = ok("mqtt://host:42?client_id=foo&keep_alive_secs=5");
-        assert_eq!(v.keep_alive, Duration::from_secs(5));
-
-        assert_eq!(err("mqtt://host:42"), OptionError::ClientId);
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&foo=bar"),
-            OptionError::Unknown("foo".to_owned())
-        );
-        assert_eq!(err("mqt://host:42?client_id=foo"), OptionError::Scheme);
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&keep_alive_secs=foo"),
-            OptionError::KeepAlive
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&clean_session=foo"),
-            OptionError::CleanSession
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&max_incoming_packet_size_bytes=foo"),
-            OptionError::MaxIncomingPacketSize
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&max_outgoing_packet_size_bytes=foo"),
-            OptionError::MaxOutgoingPacketSize
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&request_channel_capacity_num=foo"),
-            OptionError::RequestChannelCapacity
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&max_request_batch_num=foo"),
-            OptionError::MaxRequestBatch
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&pending_throttle_usecs=foo"),
-            OptionError::PendingThrottle
-        );
-        assert_eq!(
-            err("mqtt://host:42?client_id=foo&inflight_num=foo"),
-            OptionError::Inflight
-        );
-    }
-
-    #[test]
-    fn accept_empty_client_id() {
-        let _mqtt_opts = MqttOptions::new("", "127.0.0.1", 1883).set_clean_session(true);
-    }
-
-    #[test]
-    fn set_clean_session_when_client_id_present() {
-        let mut options = MqttOptions::new("client_id", "127.0.0.1", 1883);
-        options.set_clean_session(false);
-        options.set_clean_session(true);
-    }
+/// Requests by the client to mqtt event loop. Request are
+/// handled one by one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    Raw(Arc<Vec<u8>>),
+    Packet(Packet),
+    // Publish(Publish),
+    // PubAck(PubAck),
+    // PubRec(PubRec),
+    // PubComp(PubComp),
+    // PubRel(PubRel),
+    // PingReq(PingReq),
+    // PingResp(PingResp),
+    // Subscribe(Subscribe),
+    // SubAck(SubAck),
+    // Unsubscribe(Unsubscribe),
+    // UnsubAck(UnsubAck),
+    // Disconnect(Disconnect),
 }

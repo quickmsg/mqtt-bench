@@ -1,4 +1,6 @@
-use bytes::BytesMut;
+use std::sync::Arc;
+
+use bytes::{BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::{Error, Packet};
@@ -29,11 +31,23 @@ impl Decoder for Codec {
     }
 }
 
+// impl Encoder<Packet> for Codec {
+//     type Error = Error;
+
+//     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
+//         item.write(dst);
+//         // dst.put_slice(&item);
+
+//         Ok(())
+//     }
+// }
+
 impl Encoder<Packet> for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        item.write(dst, self.max_outgoing_size)?;
+        item.write(dst);
+        // dst.put_slice(&item);
 
         Ok(())
     }

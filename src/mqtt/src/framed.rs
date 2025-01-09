@@ -1,6 +1,12 @@
+use futures_util::{FutureExt, SinkExt, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-use crate::protocol::{self, v3_mini::v4::Codec};
+use crate::{
+    protocol::{self, v3_mini::v4::Codec},
+    state::{self, StateError},
+    Incoming, Request,
+};
 
 /// Network transforms packets <-> frames efficiently. It takes
 /// advantage of pre-allocation, buffering and vectorization when
@@ -35,7 +41,7 @@ impl Network {
     pub async fn read(&mut self) -> Result<Incoming, StateError> {
         match self.framed.next().await {
             Some(Ok(packet)) => Ok(packet),
-            Some(Err(protocol::Error::InsufficientBytes(_))) => unreachable!(),
+            Some(Err(protocol::v3_mini::Error::InsufficientBytes(_))) => unreachable!(),
             Some(Err(e)) => Err(StateError::Deserialization(e)),
             None => Err(StateError::ConnectionAborted),
         }
@@ -43,23 +49,17 @@ impl Network {
 
     /// Read packets in bulk. This allow replies to be in bulk. This method is used
     /// after the connection is established to read a bunch of incoming packets
-    pub async fn readb(&mut self, state: &mut MqttState) -> Result<(), StateError> {
+    pub async fn readb(&mut self) -> Result<(), StateError> {
         // wait for the first read
         let mut res = self.framed.next().await;
-        let mut count = 1;
         loop {
             match res {
                 Some(Ok(packet)) => {
-                    if let Some(outgoing) = state.handle_incoming_packet(packet)? {
-                        self.write(outgoing).await?;
-                    }
-
-                    count += 1;
-                    if count >= self.max_readb_count {
-                        break;
+                    if let Some(outgoing) = state::handle_incoming_packet(packet)? {
+                        self.write(Request::Packet(outgoing)).await?;
                     }
                 }
-                Some(Err(mqttbytes::Error::InsufficientBytes(_))) => unreachable!(),
+                Some(Err(protocol::v3_mini::Error::InsufficientBytes(_))) => unreachable!(),
                 Some(Err(e)) => return Err(StateError::Deserialization(e)),
                 None => return Err(StateError::ConnectionAborted),
             }
@@ -74,11 +74,19 @@ impl Network {
     }
 
     /// Serializes packet into write buffer
-    pub async fn write(&mut self, packet: Packet) -> Result<(), StateError> {
-        self.framed
-            .feed(packet)
-            .await
-            .map_err(StateError::Deserialization)
+    pub async fn write(&mut self, request: Request) -> Result<(), StateError> {
+        match request {
+            Request::Raw(vec) => {
+                self.framed.send(vec).await;
+                Ok(())
+            }
+
+            Request::Packet(packet) => self
+                .framed
+                .feed(packet)
+                .await
+                .map_err(StateError::Deserialization),
+        }
     }
 
     pub async fn flush(&mut self) -> Result<(), crate::state::StateError> {

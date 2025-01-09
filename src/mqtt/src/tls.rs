@@ -26,7 +26,7 @@ pub enum Error {
     Io(#[from] io::Error),
     /// Certificate/Name validation error
     #[error("Web Pki: {0}")]
-    WebPki(#[from] webpki::Error),
+    WebPki(#[from] WebPkiError),
     /// Invalid DNS name
     #[error("DNS name")]
     DNSName(#[from] InvalidDnsNameError),
@@ -43,6 +43,17 @@ pub enum Error {
     #[error("No valid key in chain")]
     NoValidKeyInChain,
 }
+
+#[derive(Debug)]
+pub struct WebPkiError(webpki::Error);
+
+impl std::fmt::Display for WebPkiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Web Pki: {:?}", self.0)
+    }
+}
+
+impl std::error::Error for WebPkiError {}
 
 pub async fn rustls_connector(tls_config: &TlsConfiguration) -> Result<RustlsConnector, Error> {
     let config = match tls_config {
