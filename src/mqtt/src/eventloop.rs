@@ -162,7 +162,15 @@ impl EventLoop {
                                     return;
                                 }
                                 match time::timeout(Duration::from_secs(1), network.flush()).await {
-                                    Ok(inner) => inner.unwrap(),
+                                    Ok(inner) => {
+                                        match inner {
+                                        Ok(_) => {}
+                                        Err(_) => {
+                                            error!("network Flush timeout");
+                                            return;
+                                        }
+                                    }
+                                    },
                                     Err(_)=> {
                                         error!("network Flush timeout");
                                         return;
