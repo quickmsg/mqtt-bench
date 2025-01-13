@@ -2,7 +2,7 @@ use std::fs::File;
 
 use csv::ReaderBuilder;
 use tokio::signal;
-use tracing::{debug, level_filters::LevelFilter, span::Record};
+use tracing::{debug, level_filters::LevelFilter};
 use tracing_subscriber::FmtSubscriber;
 
 use clap::Parser;
@@ -40,7 +40,8 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(LevelFilter::INFO)
+        // .with_max_level(LevelFilter::INFO)
+        .with_max_level(LevelFilter::TRACE)
         // TODO 发布环境去除
         // .with_line_number(true)
         .finish();
@@ -71,7 +72,7 @@ async fn main() {
 
     let file = File::open("clients.txt").unwrap();
     let mut rdr = ReaderBuilder::new()
-        .delimiter(b';')
+        .delimiter(b',')
         .has_headers(true)
         .from_reader(file);
 
@@ -81,26 +82,26 @@ async fn main() {
         // error here.
 
         let record = result.unwrap();
+        debug!("{:?}", record);
         client_confs.push((
-            record.get(0).unwrap().to_string(),
             record.get(1).unwrap().to_string(),
             record.get(2).unwrap().to_string(),
             record.get(3).unwrap().to_string(),
+            record.get(4).unwrap().to_string(),
         ));
-
-        println!("{:?}", record);
     }
+
+    debug!("{:?}", client_confs);
 
     bench::create_group(types::GroupCreateReq {
         name: "test".to_string(),
-        // client_id: "${uuid}".to_string(),
         client_id: None,
         protocol_version: types::ProtocolVersion::V311,
         protocol: types::Protocol::Mqtt,
         port: 1883,
         client_count: None,
         ssl_conf: None,
-        clients: todo!(),
+        clients: Some(client_confs),
     })
     .await;
 
@@ -129,7 +130,6 @@ async fn main() {
     .unwrap();
 
     bench::start_group(groups.list[0].id.clone()).await;
-    // debug!("{:?}", args);
 
     signal::ctrl_c()
         .await
