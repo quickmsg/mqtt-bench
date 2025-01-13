@@ -22,13 +22,15 @@ pub struct BrokerUpdateReq {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GroupCreateReq {
     pub name: String,
-    pub client_id: String,
+    pub client_id: Option<String>,
     pub protocol_version: ProtocolVersion,
     pub protocol: Protocol,
     pub port: u16,
-    pub client_count: usize,
+    pub client_count: Option<usize>,
     pub ssl_conf: Option<SslConf>,
-    // pub local_ips: Option<Vec<String>>,
+
+    // client_id, username, password, topic
+    pub clients: Option<Vec<(String, String, String, String)>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::lock::BiLock;
 use tokio::{
     select,
-    sync::{mpsc, oneshot, RwLock},
+    sync::{mpsc, oneshot},
     time,
 };
 use tracing::{debug, info};
@@ -53,7 +53,8 @@ pub struct ClientGroupConf {
 }
 
 impl Group {
-    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, req: GroupCreateReq) -> Self {
+    pub fn new(id: String, broker_info: Arc<BrokerUpdateReq>, mut req: GroupCreateReq) -> Self {
+        let clients_conf = req.clients.take();
         // TODO 优化req clone
         let group_conf = Arc::new(req.clone());
         let client_group_conf = Arc::new(ClientGroupConf {
@@ -64,18 +65,19 @@ impl Group {
         let client_metrics = Arc::new(ClientAtomicMetrics::default());
         let packet_metrics = Arc::new(PacketAtomicMetrics::default());
 
+        let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
+
         let clients = Self::new_clients(
             &id,
-            0,
-            group_conf.client_count,
+            // group_conf.client_count,
             &broker_info,
             &group_conf,
             client_group_conf,
             &client_metrics,
             &packet_metrics,
+            clients_conf,
         );
 
-        let (stop_signal_tx, _) = tokio::sync::broadcast::channel(1);
         Self {
             id,
             status: Status::Stopped,
@@ -94,42 +96,65 @@ impl Group {
 
     fn new_clients(
         group_id: &String,
-        offset: usize,
-        client_count: usize,
+        broker_info: &Arc<BrokerUpdateReq>,
+        group_conf: &GroupCreateReq,
+        client_group_conf: Arc<ClientGroupConf>,
+        client_metrics: &Arc<ClientAtomicMetrics>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+        clients_conf: Option<Vec<(String, String, String, String)>>,
+    ) -> Vec<Box<dyn Client>> {
+        match clients_conf {
+            Some(clients_conf) => Self::new_conf_clients(
+                group_id,
+                broker_info,
+                group_conf,
+                client_group_conf,
+                client_metrics,
+                packet_metrics,
+                clients_conf,
+            ),
+            None => Self::new_random_clients(
+                group_id,
+                broker_info,
+                group_conf,
+                client_group_conf,
+                client_metrics,
+                packet_metrics,
+            ),
+        }
+    }
+
+    fn new_random_clients(
+        group_id: &String,
         broker_info: &Arc<BrokerUpdateReq>,
         group_conf: &GroupCreateReq,
         client_group_conf: Arc<ClientGroupConf>,
         client_metrics: &Arc<ClientAtomicMetrics>,
         packet_metrics: &Arc<PacketAtomicMetrics>,
     ) -> Vec<Box<dyn Client>> {
+        let client_count = group_conf.client_count.unwrap();
         let mut clients = Vec::with_capacity(client_count);
 
-        let client_id_template = parse_id(&group_conf.client_id);
+        let client_id = group_conf.client_id.as_ref().unwrap();
 
-        for index in offset..client_count + offset {
+        let client_id_template = parse_id(client_id);
+
+        for index in 0..client_count {
             let client_id = match client_id_template {
-                ClientIdTemplate::None => group_conf.client_id.clone(),
-                ClientIdTemplate::Index => {
-                    group_conf.client_id.replace("${index}", &index.to_string())
-                }
-                ClientIdTemplate::GroupId => group_conf.client_id.replace("${group_id}", group_id),
-                ClientIdTemplate::Uuid => group_conf
-                    .client_id
-                    .replace("${uuid}", &Uuid::new_v4().to_string()),
-                ClientIdTemplate::IndexGroupId => group_conf
-                    .client_id
+                ClientIdTemplate::None => client_id.clone(),
+                ClientIdTemplate::Index => client_id.replace("${index}", &index.to_string()),
+                ClientIdTemplate::GroupId => client_id.replace("${group_id}", group_id),
+                ClientIdTemplate::Uuid => client_id.replace("${uuid}", &Uuid::new_v4().to_string()),
+                ClientIdTemplate::IndexGroupId => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${group_id}", group_id),
-                ClientIdTemplate::IndexUuid => group_conf
-                    .client_id
+                ClientIdTemplate::IndexUuid => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
-                ClientIdTemplate::UuidGroupId => group_conf
-                    .client_id
+                ClientIdTemplate::UuidGroupId => client_id
                     .replace("${uuid}", &Uuid::new_v4().to_string())
                     .replace("${group_id}", group_id),
-                ClientIdTemplate::IndexGroupIdUuid => group_conf
-                    .client_id
+                ClientIdTemplate::IndexGroupIdUuid => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${group_id}", group_id)
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
@@ -139,7 +164,7 @@ impl Group {
                 None => None,
             };
             let client_conf = client::ClientConf {
-                id: client_id,
+                client_id,
                 host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
                 keep_alive: u16::MAX,
                 username: None,
@@ -187,6 +212,76 @@ impl Group {
                 }
             }
         }
+        clients
+    }
+
+    fn new_conf_clients(
+        group_id: &String,
+        broker_info: &Arc<BrokerUpdateReq>,
+        group_conf: &GroupCreateReq,
+        client_group_conf: Arc<ClientGroupConf>,
+        client_metrics: &Arc<ClientAtomicMetrics>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+        clients_conf: Vec<(String, String, String, String)>,
+    ) -> Vec<Box<dyn Client>> {
+        let mut clients = Vec::with_capacity(clients_conf.len());
+
+        for (index, cli_client_conf) in clients_conf.into_iter().enumerate() {
+            let local_ip = match &broker_info.local_ips {
+                Some(ips) => Some(ips[index % ips.len()].clone()),
+                None => None,
+            };
+
+            let client_conf = client::ClientConf {
+                client_id: cli_client_conf.0,
+                host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                keep_alive: u16::MAX,
+                username: Some(cli_client_conf.1),
+                password: Some(cli_client_conf.2),
+                local_ip,
+            };
+            match (&group_conf.protocol, &group_conf.protocol_version) {
+                (types::Protocol::Mqtt, types::ProtocolVersion::V311) => {
+                    clients.push(client::mqtt_v311::new(
+                        client_conf,
+                        client_group_conf.clone(),
+                        client_metrics.clone(),
+                        packet_metrics.clone(),
+                    ));
+                }
+                (types::Protocol::Mqtt, types::ProtocolVersion::V50) => {
+                    todo!()
+                    // clients.push(client::mqtt_v50::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
+                }
+                (types::Protocol::Websocket, types::ProtocolVersion::V311) => {
+                    todo!()
+                    // clients.push(client::websocket_v311::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
+                }
+                (types::Protocol::Websocket, types::ProtocolVersion::V50) => {
+                    // clients.push(client::websocket_v50::new(
+                    //     client_conf,
+                    //     client_group_conf.clone(),
+                    //     client_metrics.clone(),
+                    //     packet_metrics.clone(),
+                    // ));
+                    todo!()
+                }
+                (types::Protocol::Http, _) => {
+                    todo!()
+                }
+            }
+        }
+
         clients
     }
 
@@ -343,9 +438,11 @@ impl Group {
         let mut connect_interval = time::interval(time::Duration::from_millis(
             self.broker_info.connect_interval,
         ));
-        let client_count = self.conf.client_count;
+
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut index = 0;
+
+        let client_count = self.clients.len();
 
         loop {
             select! {
@@ -374,61 +471,61 @@ impl Group {
         }
     }
 
-    fn check_update_client(old_conf: &GroupCreateReq, new_conf: &GroupUpdateReq) -> bool {
-        if old_conf.port != new_conf.port {
-            return true;
-        }
+    // fn check_update_client(old_conf: &GroupCreateReq, new_conf: &GroupUpdateReq) -> bool {
+    //     if old_conf.port != new_conf.port {
+    //         return true;
+    //     }
 
-        if old_conf.client_id != new_conf.client_id {
-            return true;
-        }
+    //     if old_conf.client_id != new_conf.client_id {
+    //         return true;
+    //     }
 
-        match (&old_conf.ssl_conf, &new_conf.ssl_conf) {
-            (Some(old_ssl_conf), Some(new_ssl_conf)) => {
-                if old_ssl_conf.verify != new_ssl_conf.verify {
-                    return true;
-                }
+    //     match (&old_conf.ssl_conf, &new_conf.ssl_conf) {
+    //         (Some(old_ssl_conf), Some(new_ssl_conf)) => {
+    //             if old_ssl_conf.verify != new_ssl_conf.verify {
+    //                 return true;
+    //             }
 
-                match (&old_ssl_conf.ca_cert, &new_ssl_conf.ca_cert) {
-                    (Some(old_ca_cert), Some(new_ca_cert)) => {
-                        if old_ca_cert != new_ca_cert {
-                            return true;
-                        }
-                    }
-                    (None, Some(_)) => return true,
-                    (Some(_), None) => return true,
-                    _ => {}
-                }
+    //             match (&old_ssl_conf.ca_cert, &new_ssl_conf.ca_cert) {
+    //                 (Some(old_ca_cert), Some(new_ca_cert)) => {
+    //                     if old_ca_cert != new_ca_cert {
+    //                         return true;
+    //                     }
+    //                 }
+    //                 (None, Some(_)) => return true,
+    //                 (Some(_), None) => return true,
+    //                 _ => {}
+    //             }
 
-                match (&old_ssl_conf.client_cert, &new_ssl_conf.client_cert) {
-                    (Some(old_client_cert), Some(new_client_cert)) => {
-                        if old_client_cert != new_client_cert {
-                            return true;
-                        }
-                    }
-                    (None, Some(_)) => return true,
-                    (Some(_), None) => return true,
-                    _ => {}
-                }
+    //             match (&old_ssl_conf.client_cert, &new_ssl_conf.client_cert) {
+    //                 (Some(old_client_cert), Some(new_client_cert)) => {
+    //                     if old_client_cert != new_client_cert {
+    //                         return true;
+    //                     }
+    //                 }
+    //                 (None, Some(_)) => return true,
+    //                 (Some(_), None) => return true,
+    //                 _ => {}
+    //             }
 
-                match (&old_ssl_conf.client_key, &new_ssl_conf.client_key) {
-                    (Some(old_client_key), Some(new_client_key)) => {
-                        if old_client_key != new_client_key {
-                            return true;
-                        }
-                    }
-                    (None, Some(_)) => return true,
-                    (Some(_), None) => return true,
-                    _ => {}
-                }
+    //             match (&old_ssl_conf.client_key, &new_ssl_conf.client_key) {
+    //                 (Some(old_client_key), Some(new_client_key)) => {
+    //                     if old_client_key != new_client_key {
+    //                         return true;
+    //                     }
+    //                 }
+    //                 (None, Some(_)) => return true,
+    //                 (Some(_), None) => return true,
+    //                 _ => {}
+    //             }
 
-                return false;
-            }
-            (None, Some(_)) => true,
-            (Some(_), None) => true,
-            _ => false,
-        }
-    }
+    //             return false;
+    //         }
+    //         (None, Some(_)) => true,
+    //         (Some(_), None) => true,
+    //         _ => false,
+    //     }
+    // }
 
     // pub async fn update(&mut self, req: GroupUpdateReq) -> Result<()> {
     //     self.check_stopped()?;

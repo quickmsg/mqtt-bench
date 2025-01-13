@@ -1,5 +1,8 @@
+use std::fs::File;
+
+use csv::ReaderBuilder;
 use tokio::signal;
-use tracing::{debug, level_filters::LevelFilter};
+use tracing::{debug, level_filters::LevelFilter, span::Record};
 use tracing_subscriber::FmtSubscriber;
 
 use clap::Parser;
@@ -14,9 +17,6 @@ struct Args {
 
     #[arg(long, default_value_t = 1883)]
     port: u16,
-
-    #[arg(long)]
-    client: usize,
 
     #[arg(long)]
     tps: usize,
@@ -69,15 +69,38 @@ async fn main() {
     .await
     .unwrap();
 
+    let file = File::open("clients.txt").unwrap();
+    let mut rdr = ReaderBuilder::new()
+        .delimiter(b';')
+        .has_headers(true)
+        .from_reader(file);
+
+    let mut client_confs = vec![];
+    for result in rdr.records() {
+        // The iterator yields Result<StringRecord, Error>, so we check the
+        // error here.
+
+        let record = result.unwrap();
+        client_confs.push((
+            record.get(0).unwrap().to_string(),
+            record.get(1).unwrap().to_string(),
+            record.get(2).unwrap().to_string(),
+            record.get(3).unwrap().to_string(),
+        ));
+
+        println!("{:?}", record);
+    }
+
     bench::create_group(types::GroupCreateReq {
         name: "test".to_string(),
-        client_id: Some("${uuid}".to_string()),
+        // client_id: "${uuid}".to_string(),
+        client_id: None,
         protocol_version: types::ProtocolVersion::V311,
         protocol: types::Protocol::Mqtt,
         port: 1883,
-        client_count: Some(args.client),
+        client_count: None,
         ssl_conf: None,
-        clients: None,
+        clients: todo!(),
     })
     .await;
 

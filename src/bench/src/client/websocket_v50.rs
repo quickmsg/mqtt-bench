@@ -80,7 +80,7 @@ pub fn new(
 impl Client for WebsocketClientV50 {
     async fn start(&mut self) {
         let mut mqtt_options = MqttOptions::new(
-            self.client_conf.id.clone(),
+            self.client_conf.client_id.clone(),
             self.client_conf.host.clone(),
             self.group_conf.port,
         );

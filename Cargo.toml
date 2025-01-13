@@ -6,7 +6,7 @@ members = [
     "src/types",
     "src/rumqttc",
     "src/cli",
-    "src/mqtt",
+    "src/mqtt", "src/xs",
 ]
 resolver = "2"
 

@@ -77,7 +77,7 @@ impl Client for WebsocketClientV311 {
         let mut mqtt_options = match &&self.group_conf.ssl_conf {
             Some(ssl_conf) => {
                 let mut mqtt_options = MqttOptions::new(
-                    self.client_conf.id.clone(),
+                    self.client_conf.client_id.clone(),
                     format!(
                         "wss://{}:{}/mqtt",
                         self.client_conf.host, self.group_conf.port
@@ -92,7 +92,7 @@ impl Client for WebsocketClientV311 {
             }
             None => {
                 let mut mqtt_options = MqttOptions::new(
-                    self.client_conf.id.clone(),
+                    self.client_conf.client_id.clone(),
                     format!(
                         "ws://{}:{}/mqtt",
                         self.client_conf.host, self.group_conf.port

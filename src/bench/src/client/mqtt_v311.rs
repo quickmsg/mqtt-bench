@@ -6,7 +6,9 @@ use futures::lock::BiLock;
 use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
 use tokio::{select, sync::watch};
 use tracing::{error, warn};
-use types::{group::PacketAtomicMetrics, ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
+use types::{
+    group::PacketAtomicMetrics, ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
+};
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
@@ -57,7 +59,7 @@ impl Client for MqttClientV311 {
     async fn start(&mut self) {
         self.update_status(Status::Running);
         let mut mqtt_options = MqttOptions::new(
-            self.client_conf.id.clone(),
+            self.client_conf.client_id.clone(),
             self.client_conf.host.clone(),
             self.group_conf.port,
         );
@@ -71,6 +73,7 @@ impl Client for MqttClientV311 {
         }
 
         mqtt_options.set_keep_alive(self.client_conf.keep_alive);
+
         match (&self.client_conf.username, &self.client_conf.password) {
             (Some(username), Some(password)) => {
                 mqtt_options.set_credentials(username.clone(), password.clone());
@@ -100,10 +103,10 @@ impl Client for MqttClientV311 {
         self.client = Some(client);
         // self.stop_signal_tx = Some(stop_signal_tx);
 
-        let packet_metrics = self.packet_metrics.clone();
+        // let packet_metrics = self.packet_metrics.clone();
 
-        let (err1, err2) = BiLock::new(None);
-        self.err = Some(err1);
+        // let (err1, err2) = BiLock::new(None);
+        // self.err = Some(err1);
 
         // for publish in self.publishes.iter_mut() {
         //     publish.start(self.client.clone().unwrap());

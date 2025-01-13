@@ -42,9 +42,9 @@ pub trait Client: Sync + Send {
 }
 
 pub struct ClientConf {
-    pub id: String,
     pub host: String,
     pub keep_alive: u16,
+    pub client_id: String,
     pub username: Option<String>,
     pub password: Option<String>,
     pub local_ip: Option<String>,
@@ -220,7 +220,7 @@ macro_rules! read {
             None => None,
         };
         types::ClientsListRespItem {
-            client_id: $self.client_conf.id.clone(),
+            client_id: $self.client_conf.client_id.clone(),
             status: $self.status,
             addr: $self.client_conf.host.clone(),
             err,
