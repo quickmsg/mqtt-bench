@@ -13,17 +13,17 @@ use tokio::{
 };
 use tracing::{debug, info};
 use types::{
-    group::PacketAtomicMetrics, BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics,
-    ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupUpdateReq, ListPublishResp,
-    ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem, MetricsListItem,
-    MetricsListResp, MetricsQueryParams, PacketMetrics, PacketUsizeMetrics, PublishConf,
-    PublishCreateUpdateReq, ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq,
+    group::{ClientAtomicMetrics, PacketAtomicMetrics},
+    BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
+    GroupCreateReq, ListPublishResp, ListPublishRespItem, ListSubscribeResp, ListSubscribeRespItem,
+    MetricsListItem, MetricsListResp, MetricsQueryParams, PacketMetrics, PacketUsizeMetrics,
+    PublishConf, PublishCreateUpdateReq, ReadGroupResp, SslConf, Status, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
 use crate::{
     client::{self, Client},
-    generate_id, ClientAtomicMetrics,
+    generate_id,
 };
 
 // 运行中不允许更新，降低复杂度

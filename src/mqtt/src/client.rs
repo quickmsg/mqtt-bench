@@ -4,9 +4,8 @@
 use std::sync::Arc;
 
 use flume::Sender;
-use tokio::runtime::Runtime;
 use tracing::warn;
-use types::group::PacketAtomicMetrics;
+use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
 use crate::{protocol::v3_mini::v4::Packet, ConnectionError, EventLoop, MqttOptions, Request};
 
@@ -34,13 +33,14 @@ impl AsyncClient {
     ///
     /// `cap` specifies the capacity of the bounded async channel.
     pub async fn new(
+        client_metrics: Arc<ClientAtomicMetrics>,
         options: MqttOptions,
         cap: usize,
         packet_metrics: Arc<PacketAtomicMetrics>,
-    ) -> Result<AsyncClient, ConnectionError> {
-        let request_tx = EventLoop::start(options, cap, packet_metrics).await?;
+    ) -> AsyncClient {
+        let request_tx = EventLoop::start(client_metrics, options, cap, packet_metrics).await;
         let client = AsyncClient { request_tx };
-        Ok(client)
+        client
     }
 
     pub async fn publish(&self, payload: Packet) {

@@ -2,7 +2,7 @@ use flume::{bounded, Receiver, Sender};
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
 use tokio::{select, time};
 use tracing::error;
-use types::group::PacketAtomicMetrics;
+use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
 use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
 use crate::state::StateError;
@@ -82,27 +82,39 @@ impl EventLoop {
     /// When connection encounters critical errors (like auth failure), user has a choice to
     /// access and update `options`, `state` and `requests`.
     pub async fn start(
+        client_metrics: Arc<ClientAtomicMetrics>,
         mqtt_options: MqttOptions,
         cap: usize,
         packet_metrics: Arc<PacketAtomicMetrics>,
-    ) -> Result<Sender<Packet>, ConnectionError> {
+    ) -> Sender<Packet> {
         let (requests_tx, requests_rx) = bounded(cap);
 
-        let mut eventloop = EventLoop {
-            mqtt_options,
-            requests_rx,
-            network: None,
-            network_options: NetworkOptions::new(),
-        };
+        tokio::spawn(async move {
+            let mut eventloop = EventLoop {
+                mqtt_options,
+                requests_rx,
+                network: None,
+                network_options: NetworkOptions::new(),
+            };
 
-        if let Some(local_ip) = &eventloop.mqtt_options.local_ip {
-            eventloop.network_options.local_ip = Some(local_ip.clone());
-        }
+            if let Some(local_ip) = &eventloop.mqtt_options.local_ip {
+                eventloop.network_options.local_ip = Some(local_ip.clone());
+            }
 
-        let network = eventloop.connect(&packet_metrics).await?;
-        eventloop.run_long_time(network, packet_metrics);
+            let network = match eventloop.connect(&packet_metrics).await {
+                Ok(network) => network,
+                Err(e) => {
+                    client_metrics
+                        .error_cnt
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    error!("connect error: {:?}", e);
+                    return;
+                }
+            };
+            eventloop.run_long_time(network, packet_metrics);
+        });
 
-        Ok(requests_tx)
+        requests_tx
     }
 
     pub async fn connect(

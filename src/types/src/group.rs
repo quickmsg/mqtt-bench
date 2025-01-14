@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicUsize;
 
-use crate::PacketUsizeMetrics;
+use crate::{ClientUsizeMetrics, PacketUsizeMetrics};
 
 #[derive(Default, Debug)]
 pub struct PacketAtomicMetrics {
@@ -58,6 +58,31 @@ impl PacketAtomicMetrics {
                 .unsubscribe
                 .swap(0, std::sync::atomic::Ordering::SeqCst),
             disconnect: self.disconnect.swap(0, std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ClientAtomicMetrics {
+    pub running_cnt: AtomicUsize,
+    pub waiting_cnt: AtomicUsize,
+    pub error_cnt: AtomicUsize,
+    pub stopped_cnt: AtomicUsize,
+}
+
+impl ClientAtomicMetrics {
+    pub fn take_metrics(&self) -> ClientUsizeMetrics {
+        ClientUsizeMetrics {
+            running_cnt: self
+                .running_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            waiting_cnt: self
+                .waiting_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
+            error_cnt: self.error_cnt.swap(0, std::sync::atomic::Ordering::SeqCst),
+            stopped_cnt: self
+                .stopped_cnt
+                .swap(0, std::sync::atomic::Ordering::SeqCst),
         }
     }
 }

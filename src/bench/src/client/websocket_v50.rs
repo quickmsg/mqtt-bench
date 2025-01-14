@@ -9,12 +9,13 @@ use rumqttc::{
 };
 use tokio::{select, sync::watch};
 use types::{
-    group::PacketAtomicMetrics, ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
+    group::{ClientAtomicMetrics, PacketAtomicMetrics},
+    ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
 };
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
+    read, stop, update, update_publish, update_status, update_subscribe,
 };
 
 use super::{

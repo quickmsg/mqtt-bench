@@ -7,12 +7,13 @@ use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
 use tokio::{select, sync::watch};
 use tracing::{error, warn};
 use types::{
-    group::PacketAtomicMetrics, ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
+    group::{ClientAtomicMetrics, PacketAtomicMetrics},
+    ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
 };
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    read, stop, update, update_publish, update_status, update_subscribe, ClientAtomicMetrics,
+    read, stop, update, update_publish, update_status, update_subscribe,
 };
 
 use super::{
@@ -92,13 +93,22 @@ impl Client for MqttClientV311 {
         }
 
         // let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let client = match AsyncClient::new(mqtt_options, 8, self.packet_metrics.clone()).await {
-            Ok(client) => client,
-            Err(e) => {
-                error!("客户端连接错误: {:?}", e);
-                return;
-            }
-        };
+        let client = AsyncClient::new(
+            self.client_metrics.clone(),
+            mqtt_options,
+            8,
+            self.packet_metrics.clone(),
+        )
+        .await;
+        //     Ok(client) => client,
+        //     Err(e) => {
+        //         self.client_metrics
+        //             .running_cnt
+        //             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        //         error!("客户端连接错误: {:?}", e);
+        //         return;
+        //     }
+        // };
 
         self.client = Some(client);
         // self.stop_signal_tx = Some(stop_signal_tx);
@@ -124,12 +134,13 @@ impl Client for MqttClientV311 {
         payload: Arc<Bytes>,
         pkid: u16,
     ) {
-        let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
-        self.client
-            .as_ref()
-            .unwrap()
-            .publish(Packet::Publish(packet))
-            .await;
+        match &self.client {
+            Some(client) => {
+                let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
+                client.publish(Packet::Publish(packet)).await;
+            }
+            None => {}
+        }
     }
 
     async fn stop(&mut self) {
