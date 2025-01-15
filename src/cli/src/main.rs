@@ -1,9 +1,9 @@
 use tokio::signal;
-use tracing::{debug, level_filters::LevelFilter};
+use tracing::{debug, info, level_filters::LevelFilter};
 use tracing_subscriber::FmtSubscriber;
 
 use clap::Parser;
-use types::{BrokerUpdateReq, PublishCreateUpdateReq, Qos};
+use types::{BrokerUpdateReq, PublishCreateUpdateReq, Qos, SubscribeCreateUpdateReq};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -35,12 +35,16 @@ struct Args {
 
     #[arg(long)]
     ifaddr: Option<String>,
+
+    #[arg(long, default_value_t = String::from("pub"))]
+    mode: String,
 }
 
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(LevelFilter::INFO)
+        // .with_max_level(LevelFilter::DEBUG)
         // TODO 发布环境去除
         // .with_line_number(true)
         .finish();
@@ -62,7 +66,7 @@ async fn main() {
         username: None,
         password: None,
         client_id: None,
-        connect_interval: 5,
+        connect_interval: 2,
         statistics_interval: 1,
         local_ips,
     })
@@ -74,7 +78,7 @@ async fn main() {
         client_id: Some("${uuid}".to_string()),
         protocol_version: types::ProtocolVersion::V311,
         protocol: types::Protocol::Mqtt,
-        port: 1883,
+        port: args.port,
         client_count: Some(args.client),
         ssl_conf: None,
         clients: None,
@@ -88,22 +92,40 @@ async fn main() {
         2 => Qos::ExactlyOnce,
         _ => panic!("invalid qos"),
     };
-    bench::create_publish(
-        groups.list[0].id.clone(),
-        PublishCreateUpdateReq {
-            name: "todo".to_string(),
-            topic: args.topic,
-            qos,
-            retain: false,
-            tps: args.tps,
-            payload: args.payload,
-            size: args.size,
-            v311: None,
-            v50: None,
-        },
-    )
-    .await
-    .unwrap();
+
+    if args.mode == "pub" {
+        bench::create_publish(
+            groups.list[0].id.clone(),
+            PublishCreateUpdateReq {
+                name: "todo".to_string(),
+                topic: args.topic,
+                qos,
+                retain: false,
+                tps: args.tps,
+                payload: args.payload,
+                size: args.size,
+                v311: None,
+                v50: None,
+            },
+        )
+        .await
+        .unwrap();
+    } else if args.mode == "sub" {
+        bench::create_subscribe(
+            groups.list[0].id.clone(),
+            SubscribeCreateUpdateReq {
+                name: "todo".to_string(),
+                topic: args.topic,
+                qos,
+                v311: None,
+                v50: None,
+            },
+        )
+        .await
+        .unwrap();
+    } else {
+        panic!("invalid mode");
+    }
 
     bench::start_group(groups.list[0].id.clone()).await;
     // debug!("{:?}", args);

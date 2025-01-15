@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use flume::Sender;
-use tracing::warn;
+use tracing::{debug, warn};
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
 use crate::{protocol::v3_mini::v4::Packet, ConnectionError, EventLoop, MqttOptions, Request};
@@ -44,8 +44,9 @@ impl AsyncClient {
     }
 
     pub async fn publish(&self, payload: Packet) {
-        if let Err(_) = self.request_tx.send_async(payload).await {
-            warn!("超负载，服务端可能无法处理消息");
+        match self.request_tx.send_async(payload).await {
+            Ok(_) => debug!("send ok"),
+            Err(e) => debug!("send err: {:?}", e),
         }
     }
 }

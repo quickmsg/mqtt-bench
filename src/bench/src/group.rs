@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::lock::BiLock;
 use tokio::{
     select,
@@ -212,6 +212,7 @@ impl Group {
                 }
             }
         }
+        debug!("client created, count: {:?}", clients.len());
         clients
     }
 
@@ -301,6 +302,8 @@ impl Group {
         self.history_metrics = Some(history_metrics_2);
         self.start_clients(job_finished_signal_tx, tx).await;
 
+        debug!("start clients done");
+
         let mill_cnt = self.publishes[0].1.tps / 1000;
         debug!("mill cnt {:?}", mill_cnt);
         let mut interval = tokio::time::interval(Duration::from_millis(1));
@@ -316,17 +319,23 @@ impl Group {
         let payload = match (pulish.size, pulish.payload) {
             (None, Some(payload)) => payload.into(),
             (Some(size), None) => {
-                let mut payload = Bytes::new();
-                for _ in 0..size {}
-                payload
+                let mut buf = BytesMut::with_capacity(1024);
+                // buf.put(&b"hello world"[..]);
+                // buf.put_u16(1234);
+                // let mut payload = Bytes::new();
+                for _ in 0..size {
+                    buf.put_u8(0);
+                }
+                buf.freeze()
+                // payload
             }
             _ => panic!("请指定 payload 或 size"),
         };
         let payload = Arc::new(payload);
         let client_pos = 0;
         let client_len = self.clients.len();
-        // rx.await.unwrap();
         let mut pkid: u16 = 1;
+        debug!("client start publish");
         loop {
             select! {
                 _ = interval.tick() => {
@@ -447,6 +456,7 @@ impl Group {
         loop {
             select! {
                 _ = stop_signal_rx.recv() => {
+                    debug!("sotp signal rx recv");
                     break;
                 }
 

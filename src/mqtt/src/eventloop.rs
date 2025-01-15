@@ -150,15 +150,15 @@ impl EventLoop {
                     o = network.readb(&packet_metrics) => {
                         match o {
                             Ok(_) => {}
-                            Err(_) => {
-                                error!("network readb error");
+                            Err(e) => {
+                                error!("network readb error, {:?}", e);
                                 return;
                             }
                         }
                         // flush all the acks and return first incoming packet
-                        match time::timeout(Duration::from_secs(1), network.flush()).await {
+                        match time::timeout(Duration::from_secs(3), network.flush()).await {
                             // TODO
-                            Ok(inner) => inner.unwrap(),
+                            Ok(inner) => inner,
                             Err(_) => {
                                 error!("network Flush timeout");
                                 return
@@ -173,12 +173,12 @@ impl EventLoop {
                                     error!("network write error: {:?}", e);
                                     return;
                                 }
-                                match time::timeout(Duration::from_secs(1), network.flush()).await {
+                                match time::timeout(Duration::from_secs(3), network.flush()).await {
                                     Ok(inner) => {
                                         match inner {
                                         Ok(_) => {}
-                                        Err(_) => {
-                                            error!("network Flush timeout");
+                                        Err(e) => {
+                                            error!("network Flush timeout, err :{:?}", e);
                                             return;
                                         }
                                     }

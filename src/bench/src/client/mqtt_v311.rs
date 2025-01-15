@@ -5,7 +5,7 @@ use bytes::Bytes;
 use futures::lock::BiLock;
 use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
 use tokio::{select, sync::watch};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
     ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
@@ -136,6 +136,7 @@ impl Client for MqttClientV311 {
     ) {
         match &self.client {
             Some(client) => {
+                // debug!("client publish");
                 let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
                 client.publish(Packet::Publish(packet)).await;
             }
