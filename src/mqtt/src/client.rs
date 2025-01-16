@@ -7,7 +7,13 @@ use flume::Sender;
 use tracing::{debug, warn};
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
-use crate::{protocol::v3_mini::v4::Packet, ConnectionError, EventLoop, MqttOptions, Request};
+use crate::{
+    protocol::{
+        self,
+        v3_mini::v4::{Packet, Subscribe},
+    },
+    ConnectionError, EventLoop, MqttOptions, Request,
+};
 
 /// Client Error
 // #[derive(Debug, thiserror::Error)]
@@ -48,6 +54,12 @@ impl AsyncClient {
             Ok(_) => debug!("send ok"),
             Err(e) => debug!("send err: {:?}", e),
         }
+    }
+
+    pub async fn subscribe(&self, sub: Subscribe) {
+        self.request_tx
+            .send_async(protocol::v3_mini::v4::Packet::Subscribe(sub))
+            .await;
     }
 }
 

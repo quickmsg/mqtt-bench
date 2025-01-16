@@ -38,5 +38,5 @@ futures-util = "0.3.31"
 opt-level = "z"   # 最小化大小
 lto = true        # 链接时优化
 codegen-units = 1 # 单一代码生成单元，优化效果更好
-panic = "abort"   # 减少 panic 信息的开销
+# panic = "abort"   # 减少 panic 信息的开销
 strip = true

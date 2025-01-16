@@ -144,6 +144,15 @@ impl Client for MqttClientV311 {
         }
     }
 
+    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+        match &self.client {
+            Some(client) => {
+                client.subscribe(sub).await;
+            }
+            None => {}
+        }
+    }
+
     async fn stop(&mut self) {
         // stop!(self);
     }

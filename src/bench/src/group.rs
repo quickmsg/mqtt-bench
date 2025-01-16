@@ -5,7 +5,12 @@ use std::{
 
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
+use chrono::{DateTime, Local};
 use futures::lock::BiLock;
+use mqtt::protocol::v3_mini::{
+    v4::{Subscribe, SubscribeFilter},
+    QoS,
+};
 use tokio::{
     select,
     sync::{mpsc, oneshot},
@@ -137,27 +142,28 @@ impl Group {
 
         let client_id = group_conf.client_id.as_ref().unwrap();
 
-        let client_id_template = parse_id(client_id);
+        let client_id_template = parse_template(client_id);
 
         for index in 0..client_count {
             let client_id = match client_id_template {
-                ClientIdTemplate::None => client_id.clone(),
-                ClientIdTemplate::Index => client_id.replace("${index}", &index.to_string()),
-                ClientIdTemplate::GroupId => client_id.replace("${group_id}", group_id),
-                ClientIdTemplate::Uuid => client_id.replace("${uuid}", &Uuid::new_v4().to_string()),
-                ClientIdTemplate::IndexGroupId => client_id
+                Template::None => client_id.clone(),
+                Template::Index => client_id.replace("${index}", &index.to_string()),
+                Template::GroupId => client_id.replace("${group_id}", group_id),
+                Template::Uuid => client_id.replace("${uuid}", &Uuid::new_v4().to_string()),
+                Template::IndexGroupId => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${group_id}", group_id),
-                ClientIdTemplate::IndexUuid => client_id
+                Template::IndexUuid => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
-                ClientIdTemplate::UuidGroupId => client_id
+                Template::UuidGroupId => client_id
                     .replace("${uuid}", &Uuid::new_v4().to_string())
                     .replace("${group_id}", group_id),
-                ClientIdTemplate::IndexGroupIdUuid => client_id
+                Template::IndexGroupIdUuid => client_id
                     .replace("${index}", &index.to_string())
                     .replace("${group_id}", group_id)
                     .replace("${uuid}", &Uuid::new_v4().to_string()),
+                Template::Range => unreachable!(),
             };
             let local_ip = match &broker_info.local_ips {
                 Some(ips) => Some(ips[index % ips.len()].clone()),
@@ -304,48 +310,91 @@ impl Group {
 
         debug!("start clients done");
 
-        let mill_cnt = self.publishes[0].1.tps / 1000;
-        debug!("mill cnt {:?}", mill_cnt);
-        let mut interval = tokio::time::interval(Duration::from_millis(1));
-        let pulish = self.publishes[0].1.clone();
+        if self.publishes.len() > 1 {
+            let mut interval = tokio::time::interval(Duration::from_millis(1));
+            let mill_cnt = self.publishes[0].1.tps / 1000;
+            debug!("mill cnt {:?}", mill_cnt);
+            let pulish = self.publishes[0].1.clone();
+            let topic = pulish.topic.clone();
+            let qos = match pulish.qos {
+                types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+                types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+                types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+            };
 
-        let topic = pulish.topic.clone();
-        let qos = match pulish.qos {
-            types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-            types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-            types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-        };
-
-        let payload = match (pulish.size, pulish.payload) {
-            (None, Some(payload)) => payload.into(),
-            (Some(size), None) => {
-                let mut buf = BytesMut::with_capacity(1024);
-                // buf.put(&b"hello world"[..]);
-                // buf.put_u16(1234);
-                // let mut payload = Bytes::new();
-                for _ in 0..size {
-                    buf.put_u8(0);
+            let payload = match (pulish.size, pulish.payload) {
+                (None, Some(payload)) => payload.into(),
+                (Some(size), None) => {
+                    let mut buf = BytesMut::with_capacity(size);
+                    for _ in 0..size {
+                        buf.put_u8(0);
+                    }
+                    buf.freeze()
                 }
-                buf.freeze()
-                // payload
+                _ => panic!("请指定 payload 或 size"),
+            };
+            let payload = Arc::new(payload);
+            let client_pos = 0;
+            let client_len = self.clients.len();
+            let mut pkid: u16 = 1;
+            debug!("client start publish");
+            loop {
+                select! {
+                    _ = interval.tick() => {
+                        Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
+                    }
+                }
             }
-            _ => panic!("请指定 payload 或 size"),
-        };
-        let payload = Arc::new(payload);
-        let client_pos = 0;
-        let client_len = self.clients.len();
-        let mut pkid: u16 = 1;
-        debug!("client start publish");
-        loop {
-            select! {
-                _ = interval.tick() => {
-                    Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
+        }
+        // } else if self.subscribes.len() > 0 {
+        //     let subscribe = self.subscribes[0].1.clone();
+        //     let topic = subscribe.topic.clone();
+        //     let qos = match subscribe.qos {
+        //         types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+        //         types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+        //         types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+        //     };
+        //     let client_pos = 0;
+        //     let client_len = self.clients.len();
+        //     let mut pkid: u16 = 1;
+        //     let mill_cnt = 1;
+        //     loop {
+        //         select! {
+        //             _ = interval.tick() => {
+        //                 Self::client_subscribe(&self.clients, client_pos, mill_cnt, &topic, qos, client_len, &pkid).await;
+        //             }
+        //         }
+        //     }
+        // }
+    }
+
+    async fn client_publish(
+        clients: &Vec<Box<dyn Client>>,
+        mut client_pos: usize,
+        mill_cnt: usize,
+        topic: &String,
+        qos: mqtt::protocol::v3_mini::QoS,
+        payload: &Arc<Bytes>,
+        client_len: usize,
+        pkid: &mut u16,
+    ) {
+        for _ in 0..mill_cnt {
+            clients[client_pos]
+                .publish(topic.clone(), qos, payload.clone(), *pkid)
+                .await;
+            client_pos += 1;
+            client_pos %= client_len;
+
+            if client_pos == 0 {
+                *pkid += 1;
+                if *pkid == u16::MAX {
+                    *pkid = 1;
                 }
             }
         }
     }
 
-    async fn client_publish(
+    async fn client_subscribe(
         clients: &Vec<Box<dyn Client>>,
         mut client_pos: usize,
         mill_cnt: usize,
@@ -396,6 +445,9 @@ impl Group {
         let client_metrics = self.client_metrics.clone();
         let packet_metrics = self.packet_metrics.clone();
         let client_running_cnt = self.running_client.clone();
+
+        let mut total_packet_metrics = PacketUsizeMetrics::default();
+        let start_time: DateTime<Local> = Local::now();
         tokio::spawn(async move {
             loop {
                 select! {
@@ -404,7 +456,7 @@ impl Group {
                     }
 
                     _ = status_interval.tick() => {
-                        Self::collect_metrics(&client_metrics,&packet_metrics, &history_metrics, &client_running_cnt).await;
+                        Self::collect_metrics(&client_metrics,&packet_metrics, &history_metrics, &client_running_cnt, &mut total_packet_metrics, &start_time).await;
                     }
                 }
             }
@@ -416,11 +468,21 @@ impl Group {
         packet_metrics: &Arc<PacketAtomicMetrics>,
         history_metrics: &BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>,
         running_client: &Arc<AtomicU32>,
+        total_packet_metrics: &mut PacketUsizeMetrics,
+        start_time: &DateTime<Local>,
     ) {
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let elapsed = Local::now().signed_duration_since(*start_time);
+        let hour = elapsed.num_hours();
+        let minute = elapsed.num_minutes();
+        let seconds = elapsed.num_seconds();
+        if hour > 0 {
+            info!("运行时长: {}小时{}分{}秒", hour, minute, seconds);
+        } else if minute > 0 {
+            info!("运行时长: {}分{}秒", minute, seconds);
+        } else {
+            info!("运行时长: {}秒", seconds);
+        }
+
         let client_usize_metrics = client_metrics.take_metrics();
         let prev = running_client.fetch_add(
             client_usize_metrics.running_cnt as u32,
@@ -432,11 +494,13 @@ impl Group {
         );
 
         let pakcet_usize_metrics = packet_metrics.take_metrics();
-        info!("pakcet_usize_metrics: {:?}", pakcet_usize_metrics);
-        history_metrics
-            .lock()
-            .await
-            .push((ts, client_usize_metrics, pakcet_usize_metrics));
+        info!("当前包: {:?}", pakcet_usize_metrics);
+        *total_packet_metrics += pakcet_usize_metrics;
+        info!("历史包: {:?}", total_packet_metrics);
+        // history_metrics
+        //     .lock()
+        //     .await
+        //     .push((ts, client_usize_metrics, pakcet_usize_metrics));
     }
 
     async fn start_clients(
@@ -463,6 +527,8 @@ impl Group {
                 _ = connect_interval.tick() => {
                     if index < client_count {
                         self.clients[index].start().await;
+                        let sub = self.get_sub(index);
+                        self.clients[index].subscribe(sub).await;
                         index += 1;
                     } else {
                         job_finished_signal_tx.send(()).unwrap();
@@ -472,6 +538,38 @@ impl Group {
                 }
             }
         }
+    }
+
+    fn get_sub(&self, index: usize) -> Subscribe {
+        let mut filters = Vec::with_capacity(self.subscribes.len());
+        for subscribe in self.subscribes.iter() {
+            let template = parse_template(&subscribe.1.topic);
+            let topic_filter = match template {
+                Template::None => subscribe.1.topic.clone(),
+                Template::Index => subscribe
+                    .1
+                    .topic
+                    .replace("{index}", index.to_string().as_str()),
+                Template::GroupId => todo!(),
+                Template::Uuid => todo!(),
+                Template::IndexGroupId => todo!(),
+                Template::IndexUuid => todo!(),
+                Template::UuidGroupId => todo!(),
+                Template::IndexGroupIdUuid => todo!(),
+                Template::Range => todo!(),
+            };
+
+            let qos = match subscribe.1.qos {
+                types::Qos::AtMostOnce => QoS::AtLeastOnce,
+                types::Qos::AtLeastOnce => QoS::AtLeastOnce,
+                types::Qos::ExactlyOnce => QoS::ExactlyOnce,
+            };
+            filters.push(SubscribeFilter {
+                path: topic_filter,
+                qos,
+            });
+        }
+        Subscribe { pkid: 1, filters }
     }
 
     pub async fn read(&self) -> ReadGroupResp {
@@ -692,16 +790,10 @@ impl Group {
     }
 
     pub async fn create_subscribe(&mut self, req: SubscribeCreateUpdateReq) -> Result<()> {
-        todo!()
-        // self.check_stopped()?;
-        // let id = Arc::new(generate_id());
-        // let conf = Arc::new(req);
-        // for client in self.clients.write().await.iter_mut() {
-        //     client.create_subscribe(id.clone(), conf.clone()).await;
-        // }
-
-        // self.subscribes.push((id, conf));
-        // Ok(())
+        let id = Arc::new(generate_id());
+        let conf = Arc::new(req);
+        self.subscribes.push((id, conf));
+        Ok(())
     }
 
     pub async fn list_subscribes(&self) -> ListSubscribeResp {
@@ -863,7 +955,7 @@ impl Group {
     }
 }
 
-enum ClientIdTemplate {
+enum Template {
     None,
     Index,
     GroupId,
@@ -872,32 +964,37 @@ enum ClientIdTemplate {
     IndexUuid,
     UuidGroupId,
     IndexGroupIdUuid,
+    Range,
 }
 
-fn parse_id(id: &str) -> ClientIdTemplate {
+fn parse_template(template_str: &str) -> Template {
     let mut has_index = false;
-    if id.contains("${index}") {
+    if template_str.contains("{index}") {
         has_index = true;
     }
 
     let mut has_group_id = false;
-    if id.contains("${group_id}") {
+    if template_str.contains("{group_id}") {
         has_group_id = true;
     }
 
     let mut has_uuid = false;
-    if id.contains("${uuid}") {
+    if template_str.contains("{uuid}") {
         has_uuid = true;
     }
 
+    if template_str.contains("..") {
+        return Template::Range;
+    }
+
     match (has_index, has_group_id, has_uuid) {
-        (true, true, true) => ClientIdTemplate::IndexGroupIdUuid,
-        (true, true, false) => ClientIdTemplate::IndexGroupId,
-        (true, false, true) => ClientIdTemplate::IndexUuid,
-        (true, false, false) => ClientIdTemplate::Index,
-        (false, true, true) => ClientIdTemplate::UuidGroupId,
-        (false, true, false) => ClientIdTemplate::GroupId,
-        (false, false, true) => ClientIdTemplate::Uuid,
-        (false, false, false) => ClientIdTemplate::None,
+        (true, true, true) => Template::IndexGroupIdUuid,
+        (true, true, false) => Template::IndexGroupId,
+        (true, false, true) => Template::IndexUuid,
+        (true, false, false) => Template::Index,
+        (false, true, true) => Template::UuidGroupId,
+        (false, true, false) => Template::GroupId,
+        (false, false, true) => Template::Uuid,
+        (false, false, false) => Template::None,
     }
 }

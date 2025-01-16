@@ -165,6 +165,8 @@ impl Client for WebsocketClientV311 {
         //     .await;
     }
 
+    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {}
+
     async fn stop(&mut self) {
         stop!(self);
     }

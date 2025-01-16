@@ -160,6 +160,10 @@ impl Client for WebsocketClientV50 {
         //     .await;
     }
 
+    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+        todo!()
+    }
+
     fn update_status(&mut self, status: Status) {
         update_status!(self, status);
     }

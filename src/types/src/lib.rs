@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    ops::{Add, AddAssign},
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -151,6 +154,12 @@ pub enum Qos {
     ExactlyOnce = 2,
 }
 
+// impl Into<mqtt::protocol::v3_mini::QoS> for Qos {
+//     fn into(self) -> mqtt::protocol::v3_mini::QoS {
+//         todo!()
+//     }
+// }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientUsizeMetrics {
     pub running_cnt: usize,
@@ -159,7 +168,7 @@ pub struct ClientUsizeMetrics {
     pub stopped_cnt: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PacketUsizeMetrics {
     // 连接确认
     pub conn_ack: usize,
@@ -187,6 +196,25 @@ pub struct PacketUsizeMetrics {
     pub unsubscribe: usize,
     // 连接断开
     pub disconnect: usize,
+}
+
+impl AddAssign for PacketUsizeMetrics {
+    fn add_assign(&mut self, rhs: Self) {
+        self.conn_ack += rhs.conn_ack;
+        self.pub_ack += rhs.pub_ack;
+        self.unsub_ack += rhs.unsub_ack;
+        self.ping_req += rhs.ping_req;
+        self.ping_resp += rhs.ping_resp;
+        self.outgoing_publish += rhs.outgoing_publish;
+        self.incoming_publish += rhs.incoming_publish;
+        self.pub_rel += rhs.pub_rel;
+        self.pub_rec += rhs.pub_rec;
+        self.pub_comp += rhs.pub_comp;
+        self.subscribe += rhs.subscribe;
+        self.sub_ack += rhs.sub_ack;
+        self.unsubscribe += rhs.unsubscribe;
+        self.disconnect += rhs.disconnect;
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

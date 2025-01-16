@@ -71,7 +71,8 @@ impl Network {
                 }
                 Some(Err(protocol::v3_mini::Error::InsufficientBytes(_))) => unreachable!(),
                 Some(Err(e)) => return Err(StateError::Deserialization(e)),
-                None => return Err(StateError::ConnectionAborted),
+                // None => return Err(StateError::ConnectionAborted),
+                None => break,
             }
             // do not wait for subsequent reads
             match self.framed.next().now_or_never() {
@@ -97,11 +98,19 @@ impl Network {
                     .outgoing_publish
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
-            Packet::PubAck(pub_ack) => todo!(),
+            Packet::PubAck(pub_ack) => {
+                packet_metrics
+                    .sub_ack
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             Packet::PubRec(pub_rec) => todo!(),
             Packet::PubRel(pub_rel) => todo!(),
             Packet::PubComp(pub_comp) => todo!(),
-            Packet::Subscribe(subscribe) => todo!(),
+            Packet::Subscribe(subscribe) => {
+                packet_metrics
+                    .subscribe
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             Packet::SubAck(sub_ack) => todo!(),
             Packet::Unsubscribe(unsubscribe) => todo!(),
             Packet::UnsubAck(unsub_ack) => todo!(),

@@ -19,7 +19,7 @@ struct Args {
     client: usize,
 
     #[arg(long)]
-    tps: usize,
+    tps: Option<usize>,
 
     #[arg(long)]
     topic: String,
@@ -38,13 +38,16 @@ struct Args {
 
     #[arg(long, default_value_t = String::from("pub"))]
     mode: String,
+
+    #[arg(long, default_value_t = 2)]
+    connect_interval: u64,
 }
 
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(LevelFilter::INFO)
-        // .with_max_level(LevelFilter::DEBUG)
+        // .with_max_level(LevelFilter::INFO)
+        .with_max_level(LevelFilter::DEBUG)
         // TODO 发布环境去除
         // .with_line_number(true)
         .finish();
@@ -57,7 +60,7 @@ async fn main() {
         None => None,
     };
 
-    debug!("{:?}", args);
+    info!("{:?}", args);
 
     let hosts = vec![args.host.clone()];
 
@@ -66,7 +69,7 @@ async fn main() {
         username: None,
         password: None,
         client_id: None,
-        connect_interval: 2,
+        connect_interval: args.connect_interval,
         statistics_interval: 1,
         local_ips,
     })
@@ -75,7 +78,7 @@ async fn main() {
 
     bench::create_group(types::GroupCreateReq {
         name: "test".to_string(),
-        client_id: Some("${uuid}".to_string()),
+        client_id: Some("{uuid}".to_string()),
         protocol_version: types::ProtocolVersion::V311,
         protocol: types::Protocol::Mqtt,
         port: args.port,
@@ -94,6 +97,10 @@ async fn main() {
     };
 
     if args.mode == "pub" {
+        let tps = match args.tps {
+            Some(tps) => tps,
+            None => panic!("tps is required"),
+        };
         bench::create_publish(
             groups.list[0].id.clone(),
             PublishCreateUpdateReq {
@@ -101,7 +108,7 @@ async fn main() {
                 topic: args.topic,
                 qos,
                 retain: false,
-                tps: args.tps,
+                tps,
                 payload: args.payload,
                 size: args.size,
                 v311: None,

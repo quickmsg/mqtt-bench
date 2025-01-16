@@ -150,6 +150,10 @@ impl Client for MqttClientV50 {
         //     .await;
     }
 
+    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+        todo!()
+    }
+
     async fn stop(&mut self) {
         stop!(self);
     }

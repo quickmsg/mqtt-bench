@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use mqtt::protocol::v3_mini::v4::Subscribe;
 use types::{ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq};
 
 use crate::group::ClientGroupConf;
@@ -33,6 +34,8 @@ pub trait Client: Sync + Send {
         payload: Arc<Bytes>,
         pkid: u16,
     );
+
+    async fn subscribe(&self, sub: Subscribe);
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
     async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
