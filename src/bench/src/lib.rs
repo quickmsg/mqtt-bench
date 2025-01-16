@@ -273,6 +273,7 @@ pub async fn delete_publish(group_id: String, publish_id: String) -> Result<()> 
 }
 
 pub async fn create_subscribe(group_id: String, req: SubscribeCreateUpdateReq) -> Result<()> {
+    debug!("bench create subscribe");
     RUNTIME_INSTANCE
         .groups
         .write()

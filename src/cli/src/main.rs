@@ -41,13 +41,16 @@ struct Args {
 
     #[arg(long, default_value_t = 2)]
     connect_interval: u64,
+
+    #[arg(long)]
+    range: Option<usize>,
 }
 
 #[tokio::main]
 async fn main() {
     let subscriber = FmtSubscriber::builder()
-        // .with_max_level(LevelFilter::INFO)
-        .with_max_level(LevelFilter::DEBUG)
+        .with_max_level(LevelFilter::INFO)
+        // .with_max_level(LevelFilter::DEBUG)
         // TODO 发布环境去除
         // .with_line_number(true)
         .finish();
@@ -113,6 +116,7 @@ async fn main() {
                 size: args.size,
                 v311: None,
                 v50: None,
+                range: args.range,
             },
         )
         .await

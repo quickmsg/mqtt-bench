@@ -108,6 +108,7 @@ pub struct PublishCreateUpdateReq {
     pub tps: usize,
     pub payload: Option<String>,
     pub size: Option<usize>,
+    pub range: Option<usize>,
 
     pub v311: Option<PublishV311>,
     pub v50: Option<PublishV50>,

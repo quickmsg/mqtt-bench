@@ -28,6 +28,7 @@ impl SubAck {
         let variable_header_index = fixed_header.fixed_header_len;
         bytes.advance(variable_header_index);
         let pkid = read_u16(&mut bytes)?;
+        debug!("{}", pkid);
 
         if !bytes.has_remaining() {
             return Err(Error::MalformedPacket);

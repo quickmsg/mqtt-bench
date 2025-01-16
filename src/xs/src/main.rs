@@ -124,6 +124,7 @@ async fn main() {
             size: args.size,
             v311: None,
             v50: None,
+            range: None,
         },
     )
     .await

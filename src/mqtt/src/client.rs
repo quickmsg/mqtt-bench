@@ -50,10 +50,7 @@ impl AsyncClient {
     }
 
     pub async fn publish(&self, payload: Packet) {
-        match self.request_tx.send_async(payload).await {
-            Ok(_) => debug!("send ok"),
-            Err(e) => debug!("send err: {:?}", e),
-        }
+        self.request_tx.send_async(payload).await;
     }
 
     pub async fn subscribe(&self, sub: Subscribe) {

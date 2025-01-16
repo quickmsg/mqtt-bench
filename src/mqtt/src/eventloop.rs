@@ -1,9 +1,11 @@
 use flume::{bounded, Receiver, Sender};
+use futures_util::StreamExt;
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
 use tokio::{select, time};
-use tracing::error;
+use tracing::{debug, error};
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
+use crate::protocol::v3_mini;
 use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
 use crate::state::StateError;
 use crate::MqttOptions;
@@ -102,7 +104,10 @@ impl EventLoop {
             }
 
             let network = match eventloop.connect(&packet_metrics).await {
-                Ok(network) => network,
+                Ok(network) => {
+                    debug!("network connect success");
+                    network
+                }
                 Err(e) => {
                     client_metrics
                         .error_cnt
@@ -134,38 +139,22 @@ impl EventLoop {
             Ok(inner) => inner?,
             Err(_) => return Err(ConnectionError::NetworkTimeout),
         };
+        debug!("conn ack: {:?}", connack);
         packet_metrics
             .conn_ack
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        // TODO conn ack
-        // Last session might contain packets which aren't acked. If it's a new session, clear the pending packets.
         Ok(network)
     }
 
-    /// Select on network and requests and generate keepalive pings when necessary
     fn run_long_time(self, mut network: Network, packet_metrics: Arc<PacketAtomicMetrics>) {
         tokio::spawn(async move {
             loop {
                 select! {
-                    o = network.readb(&packet_metrics) => {
-                        match o {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("network readb error, {:?}", e);
-                                return;
-                            }
+                    packet = network.framed.next() => {
+                        if !network.handle_incoming_packet(packet, &packet_metrics).await {
+                            return
                         }
-                        // flush all the acks and return first incoming packet
-                        match time::timeout(Duration::from_secs(3), network.flush()).await {
-                            // TODO
-                            Ok(inner) => inner,
-                            Err(_) => {
-                                error!("network Flush timeout");
-                                return
-                            }
-                        };
                     }
-
                     r = self.requests_rx.recv_async() => {
                         match r {
                             Ok(r) => {
@@ -198,6 +187,34 @@ impl EventLoop {
                 }
             }
         });
+    }
+
+    fn handle_incoming_packet(
+        packet: Option<Result<Packet, v3_mini::Error>>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+    ) -> bool {
+        match packet {
+            Some(packet) => match packet {
+                Ok(packet) => match packet {
+                    Packet::Connect(connect) => todo!(),
+                    Packet::ConnAck(conn_ack) => todo!(),
+                    Packet::Publish(publish) => todo!(),
+                    Packet::PubAck(pub_ack) => todo!(),
+                    Packet::PubRec(pub_rec) => todo!(),
+                    Packet::PubRel(pub_rel) => todo!(),
+                    Packet::PubComp(pub_comp) => todo!(),
+                    Packet::Subscribe(subscribe) => todo!(),
+                    Packet::SubAck(sub_ack) => todo!(),
+                    Packet::Unsubscribe(unsubscribe) => todo!(),
+                    Packet::UnsubAck(unsub_ack) => todo!(),
+                    Packet::PingReq => todo!(),
+                    Packet::PingResp => todo!(),
+                    Packet::Disconnect => todo!(),
+                },
+                Err(_) => todo!(),
+            },
+            None => false,
+        }
     }
 
     pub fn network_options(&self) -> NetworkOptions {

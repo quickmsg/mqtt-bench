@@ -3,12 +3,16 @@ use std::sync::Arc;
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
+use tracing::{debug, warn};
 use types::group::PacketAtomicMetrics;
 
 use crate::{
     protocol::{
         self,
-        v3_mini::v4::{Codec, Packet},
+        v3_mini::{
+            self,
+            v4::{Codec, Packet},
+        },
     },
     state::{self, StateError},
     Incoming,
@@ -19,9 +23,7 @@ use crate::{
 /// appropriate to achieve performance
 pub struct Network {
     /// Frame MQTT packets from network connection
-    framed: Framed<Box<dyn AsyncReadWrite>, Codec>,
-    /// Maximum readv count
-    max_readb_count: usize,
+    pub framed: Framed<Box<dyn AsyncReadWrite>, Codec>,
 }
 
 impl Network {
@@ -37,9 +39,74 @@ impl Network {
         };
         let framed = Framed::new(socket, codec);
 
-        Network {
-            framed,
-            max_readb_count: 10,
+        Network { framed }
+    }
+
+    pub async fn handle_incoming_packet(
+        &mut self,
+        packet: Option<Result<Packet, v3_mini::Error>>,
+        packet_metrics: &Arc<PacketAtomicMetrics>,
+    ) -> bool {
+        match packet {
+            Some(packet) => match packet {
+                Ok(packet) => match packet {
+                    Packet::Connect(connect) => {
+                        warn!("Received Connect packet, but not expected");
+                        false
+                    }
+                    Packet::ConnAck(conn_ack) => {
+                        packet_metrics
+                            .conn_ack
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        true
+                    }
+                    Packet::Publish(publish) => {
+                        debug!("Received Publish packet: {:?}", publish);
+                        packet_metrics
+                            .incoming_publish
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        match publish.qos {
+                            v3_mini::QoS::AtMostOnce => true,
+                            v3_mini::QoS::AtLeastOnce => {
+                                let pub_ack = v3_mini::v4::PubAck::new(publish.pkid);
+                                let packet = Packet::PubAck(pub_ack);
+                                if let Err(e) = self.write(packet, packet_metrics).await {
+                                    warn!("{:?}", e);
+                                };
+
+                                true
+                            }
+                            v3_mini::QoS::ExactlyOnce => todo!(),
+                        }
+                    }
+                    Packet::PubAck(pub_ack) => {
+                        packet_metrics
+                            .pub_ack
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        true
+                    }
+                    Packet::PubRec(pub_rec) => todo!(),
+                    Packet::PubRel(pub_rel) => todo!(),
+                    Packet::PubComp(pub_comp) => todo!(),
+                    Packet::Subscribe(subscribe) => todo!(),
+                    Packet::SubAck(_) => {
+                        packet_metrics
+                            .sub_ack
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        true
+                    }
+                    Packet::Unsubscribe(unsubscribe) => todo!(),
+                    Packet::UnsubAck(unsub_ack) => todo!(),
+                    Packet::PingReq => todo!(),
+                    Packet::PingResp => todo!(),
+                    Packet::Disconnect => todo!(),
+                },
+                Err(e) => {
+                    warn!("Error deserializing packet: {:?}", e);
+                    false
+                }
+            },
+            None => false,
         }
     }
 
@@ -74,7 +141,6 @@ impl Network {
                 // None => return Err(StateError::ConnectionAborted),
                 None => break,
             }
-            // do not wait for subsequent reads
             match self.framed.next().now_or_never() {
                 Some(r) => res = r,
                 _ => break,
@@ -84,7 +150,6 @@ impl Network {
         Ok(())
     }
 
-    /// Serializes packet into write buffer
     pub async fn write(
         &mut self,
         packet: Packet,
@@ -93,25 +158,29 @@ impl Network {
         match &packet {
             Packet::Connect(connect) => {}
             Packet::ConnAck(conn_ack) => todo!(),
-            Packet::Publish(publish) => {
+            Packet::Publish(_) => {
                 packet_metrics
                     .outgoing_publish
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
-            Packet::PubAck(pub_ack) => {
+            Packet::PubAck(_) => {
                 packet_metrics
-                    .sub_ack
+                    .pub_ack
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             Packet::PubRec(pub_rec) => todo!(),
             Packet::PubRel(pub_rel) => todo!(),
             Packet::PubComp(pub_comp) => todo!(),
-            Packet::Subscribe(subscribe) => {
+            Packet::Subscribe(_) => {
                 packet_metrics
                     .subscribe
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
-            Packet::SubAck(sub_ack) => todo!(),
+            Packet::SubAck(sub_ack) => {
+                packet_metrics
+                    .sub_ack
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             Packet::Unsubscribe(unsubscribe) => todo!(),
             Packet::UnsubAck(unsub_ack) => todo!(),
             Packet::PingReq => todo!(),
@@ -121,7 +190,8 @@ impl Network {
         self.framed
             .feed(packet)
             .await
-            .map_err(StateError::Deserialization)
+            .map_err(StateError::Deserialization);
+        self.flush().await
     }
 
     pub async fn flush(&mut self) -> Result<(), crate::state::StateError> {

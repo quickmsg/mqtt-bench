@@ -96,7 +96,7 @@ impl Client for MqttClientV311 {
         let client = AsyncClient::new(
             self.client_metrics.clone(),
             mqtt_options,
-            8,
+            1024,
             self.packet_metrics.clone(),
         )
         .await;
@@ -145,6 +145,7 @@ impl Client for MqttClientV311 {
     }
 
     async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+        debug!("client subscirbe");
         match &self.client {
             Some(client) => {
                 client.subscribe(sub).await;
