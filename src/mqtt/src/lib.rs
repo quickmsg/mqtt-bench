@@ -120,7 +120,7 @@ type RequestModifierFn = Arc<
 #[cfg(feature = "proxy")]
 mod proxy;
 
-pub use client::{AsyncClient, RecvError, RecvTimeoutError, TryRecvError};
+pub use client::AsyncClient;
 pub use eventloop::{ConnectionError, EventLoop};
 use protocol::v3_mini::v4::{
     Disconnect, Login, Packet, PingReq, PingResp, PubAck, PubComp, PubRec, PubRel, Publish, SubAck,

@@ -1,83 +1,27 @@
-//! This module offers a high level synchronous and asynchronous abstraction to
-//! async eventloop.
-
 use std::sync::Arc;
 
-use flume::Sender;
-use tracing::{debug, warn};
+use tokio::sync::mpsc::UnboundedSender;
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
-use crate::{
-    protocol::{
-        self,
-        v3_mini::v4::{Packet, Subscribe},
-    },
-    ConnectionError, EventLoop, MqttOptions, Request,
-};
+use crate::{protocol::v3_mini::v4::Packet, EventLoop, MqttOptions};
 
-/// Client Error
-// #[derive(Debug, thiserror::Error)]
-// pub enum ClientError {
-//     #[error("Failed to send mqtt requests to eventloop")]
-//     Request(Request),
-// }
-
-/// An asynchronous client, communicates with MQTT `EventLoop`.
-///
-/// This is cloneable and can be used to asynchronously [`publish`](`AsyncClient::publish`),
-/// [`subscribe`](`AsyncClient::subscribe`) through the `EventLoop`, which is to be polled parallelly.
-///
-/// **NOTE**: The `EventLoop` must be regularly polled in order to send, receive and process packets
-/// from the broker, i.e. move ahead.
 #[derive(Clone, Debug)]
 pub struct AsyncClient {
-    request_tx: Sender<Packet>,
+    request_tx: UnboundedSender<Packet>,
 }
 
 impl AsyncClient {
-    /// Create a new `AsyncClient`.
-    ///
-    /// `cap` specifies the capacity of the bounded async channel.
     pub async fn new(
         client_metrics: Arc<ClientAtomicMetrics>,
         options: MqttOptions,
-        cap: usize,
         packet_metrics: Arc<PacketAtomicMetrics>,
     ) -> AsyncClient {
-        let request_tx = EventLoop::start(client_metrics, options, cap, packet_metrics).await;
+        let request_tx = EventLoop::start(client_metrics, options, packet_metrics).await;
         let client = AsyncClient { request_tx };
         client
     }
 
-    pub async fn publish(&self, payload: Packet) {
-        self.request_tx.send_async(payload).await;
+    pub fn send(&self, packet: Packet) {
+        let _ = self.request_tx.send(packet);
     }
-
-    pub async fn subscribe(&self, sub: Subscribe) {
-        self.request_tx
-            .send_async(protocol::v3_mini::v4::Packet::Subscribe(sub))
-            .await;
-    }
-}
-
-/// Error type returned by [`Connection::recv`]
-#[derive(Debug, Eq, PartialEq)]
-pub struct RecvError;
-
-/// Error type returned by [`Connection::try_recv`]
-#[derive(Debug, Eq, PartialEq)]
-pub enum TryRecvError {
-    /// User has closed requests channel
-    Disconnected,
-    /// Did not resolve
-    Empty,
-}
-
-/// Error type returned by [`Connection::recv_timeout`]
-#[derive(Debug, Eq, PartialEq)]
-pub enum RecvTimeoutError {
-    /// User has closed requests channel
-    Disconnected,
-    /// Recv request timedout
-    Timeout,
 }

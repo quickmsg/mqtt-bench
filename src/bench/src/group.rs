@@ -423,7 +423,7 @@ impl Group {
             }
 
             let topic = topic.replace("{index}", range_pos.to_string().as_str());
-            clients[0].publish(topic, qos, payload.clone(), *pkid).await;
+            clients[0].publish(topic, qos, payload.clone(), *pkid);
 
             if *range_pos == range {
                 *range_pos = 0;
@@ -444,9 +444,7 @@ impl Group {
         pkid: &mut u16,
     ) {
         for _ in 0..mill_cnt {
-            clients[client_pos]
-                .publish(topic.clone(), qos, payload.clone(), *pkid)
-                .await;
+            clients[client_pos].publish(topic.clone(), qos, payload.clone(), *pkid);
             client_pos += 1;
             client_pos %= client_len;
 
@@ -470,9 +468,7 @@ impl Group {
         pkid: &mut u16,
     ) {
         for _ in 0..mill_cnt {
-            clients[client_pos]
-                .publish(topic.clone(), qos, payload.clone(), *pkid)
-                .await;
+            clients[client_pos].publish(topic.clone(), qos, payload.clone(), *pkid);
             client_pos += 1;
             client_pos %= client_len;
 
@@ -594,7 +590,7 @@ impl Group {
                         self.clients[index].start().await;
                         match self.get_sub(index) {
                             Some(sub) => {
-                                self.clients[index].subscribe(sub).await;
+                                self.clients[index].subscribe(sub);
                             }
                             None => {}
                         }

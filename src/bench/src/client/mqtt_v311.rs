@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::lock::BiLock;
 use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
-use tokio::{select, sync::watch};
-use tracing::{debug, error, warn};
+use tokio::sync::watch;
+use tracing::debug;
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
     ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
@@ -13,7 +13,7 @@ use types::{
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    read, stop, update, update_publish, update_status, update_subscribe,
+    read, update, update_publish, update_status, update_subscribe,
 };
 
 use super::{
@@ -96,7 +96,6 @@ impl Client for MqttClientV311 {
         let client = AsyncClient::new(
             self.client_metrics.clone(),
             mqtt_options,
-            1024,
             self.packet_metrics.clone(),
         )
         .await;
@@ -127,7 +126,7 @@ impl Client for MqttClientV311 {
         // }
     }
 
-    async fn publish(
+    fn publish(
         &self,
         topic: String,
         qos: mqtt::protocol::v3_mini::QoS,
@@ -136,19 +135,18 @@ impl Client for MqttClientV311 {
     ) {
         match &self.client {
             Some(client) => {
-                // debug!("client publish");
                 let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
-                client.publish(Packet::Publish(packet)).await;
+                client.send(Packet::Publish(packet));
             }
             None => {}
         }
     }
 
-    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+    fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
         debug!("client subscirbe");
         match &self.client {
             Some(client) => {
-                client.subscribe(sub).await;
+                client.send(Packet::Subscribe(sub));
             }
             None => {}
         }

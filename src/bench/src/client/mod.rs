@@ -27,15 +27,14 @@ pub trait Client: Sync + Send {
     fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
     fn delete_publish(&mut self, id: &String);
 
-    async fn publish(
+    fn publish(
         &self,
         topic: String,
         qos: mqtt::protocol::v3_mini::QoS,
         payload: Arc<Bytes>,
         pkid: u16,
     );
-
-    async fn subscribe(&self, sub: Subscribe);
+    fn subscribe(&self, sub: Subscribe);
 
     async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
     async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);

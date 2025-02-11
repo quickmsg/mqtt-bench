@@ -146,7 +146,7 @@ impl Client for WebsocketClientV50 {
         stop!(self);
     }
 
-    async fn publish(
+    fn publish(
         &self,
         topic: String,
         qos: mqtt::protocol::v3_mini::QoS,
@@ -160,7 +160,7 @@ impl Client for WebsocketClientV50 {
         //     .await;
     }
 
-    async fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+    fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
         todo!()
     }
 

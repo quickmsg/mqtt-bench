@@ -837,7 +837,6 @@ checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
 dependencies = [
  "futures-core",
  "futures-sink",
- "nanorand",
  "spin",
 ]
 
@@ -983,10 +982,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1568,7 +1565,6 @@ dependencies = [
  "bytes",
  "bytestring",
  "fixedbitset",
- "flume",
  "futures-util",
  "http",
  "rustls-native-certs 0.8.1",
@@ -1582,15 +1578,6 @@ dependencies = [
  "types",
  "webpki",
  "ws_stream_tungstenite 0.14.0",
-]
-
-[[package]]
-name = "nanorand"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
-dependencies = [
- "getrandom",
 ]
 
 [[package]]

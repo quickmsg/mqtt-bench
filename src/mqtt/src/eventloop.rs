@@ -1,6 +1,6 @@
-use flume::{bounded, Receiver, Sender};
 use futures_util::StreamExt;
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::{select, time};
 use tracing::{debug, error};
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
@@ -70,7 +70,7 @@ pub struct EventLoop {
     /// Options of the current mqtt connection
     pub mqtt_options: MqttOptions,
     /// Request stream
-    requests_rx: Receiver<Packet>,
+    requests_rx: UnboundedReceiver<Packet>,
     /// Requests handle to send requests
     // pub(crate) requests_tx: Sender<Packet>,
     /// Network connection to the broker
@@ -79,17 +79,12 @@ pub struct EventLoop {
 }
 
 impl EventLoop {
-    /// New MQTT `EventLoop`
-    ///
-    /// When connection encounters critical errors (like auth failure), user has a choice to
-    /// access and update `options`, `state` and `requests`.
     pub async fn start(
         client_metrics: Arc<ClientAtomicMetrics>,
         mqtt_options: MqttOptions,
-        cap: usize,
         packet_metrics: Arc<PacketAtomicMetrics>,
-    ) -> Sender<Packet> {
-        let (requests_tx, requests_rx) = bounded(cap);
+    ) -> UnboundedSender<Packet> {
+        let (requests_tx, requests_rx) = unbounded_channel();
 
         tokio::spawn(async move {
             let mut eventloop = EventLoop {
@@ -146,7 +141,7 @@ impl EventLoop {
         Ok(network)
     }
 
-    fn run_long_time(self, mut network: Network, packet_metrics: Arc<PacketAtomicMetrics>) {
+    fn run_long_time(mut self, mut network: Network, packet_metrics: Arc<PacketAtomicMetrics>) {
         tokio::spawn(async move {
             loop {
                 select! {
@@ -155,9 +150,9 @@ impl EventLoop {
                             return
                         }
                     }
-                    r = self.requests_rx.recv_async() => {
+                    r = self.requests_rx.recv() => {
                         match r {
-                            Ok(r) => {
+                            Some(r) => {
                                 if let Err(e) = network.write(r, &packet_metrics).await {
                                     error!("network write error: {:?}", e);
                                     return;
@@ -178,8 +173,8 @@ impl EventLoop {
                                     }
                                 };
                             }
-                            Err(e) => {
-                                error!("requests_rx recv error: {:?}", e);
+                            None => {
+                                // error!("requests_rx recv error: {:?}", e);
                                 return;
                             }
                         }
