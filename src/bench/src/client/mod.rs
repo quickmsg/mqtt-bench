@@ -19,9 +19,9 @@ pub mod websocket_v50;
 #[async_trait]
 pub trait Client: Sync + Send {
     async fn start(&self);
-    async fn stop(&mut self);
+    async fn stop(&self);
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>);
-    fn update_status(&mut self, status: Status);
+    async fn update_status(&self, status: Status);
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>);
     fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
@@ -52,29 +52,29 @@ pub struct ClientConf {
     pub local_ip: Option<String>,
 }
 
-#[macro_export]
-macro_rules! stop {
-    ($self:expr) => {
-        match $self.status {
-            Status::Running => {
-                for publish in $self.publishes.iter_mut() {
-                    publish.stop();
-                }
+// #[macro_export]
+// macro_rules! stop {
+//     ($self:expr) => {
+//         match $self.status {
+//             Status::Running => {
+//                 for publish in $self.publishes.iter_mut() {
+//                     publish.stop();
+//                 }
 
-                for subscribe in $self.subscribes.iter_mut() {
-                    subscribe.stop($self.client.as_ref().unwrap()).await;
-                }
+//                 for subscribe in $self.subscribes.iter_mut() {
+//                     subscribe.stop($self.client.as_ref().unwrap()).await;
+//                 }
 
-                _ = $self.client.as_ref().unwrap().disconnect().await;
+//                 _ = $self.client.as_ref().unwrap().disconnect().await;
 
-                if let Some(stop_signal_tx) = &$self.stop_signal_tx {
-                    stop_signal_tx.send(()).unwrap();
-                }
-            }
-            _ => {}
-        }
-    };
-}
+//                 if let Some(stop_signal_tx) = &$self.stop_signal_tx {
+//                     stop_signal_tx.send(()).unwrap();
+//                 }
+//             }
+//             _ => {}
+//         }
+//     };
+// }
 
 #[macro_export]
 macro_rules! update {
@@ -208,24 +208,24 @@ macro_rules! delete_subscribe {
     };
 }
 
-#[macro_export]
-macro_rules! read {
-    ($self:expr) => {{
-        let err = match &$self.err {
-            Some(err) => {
-                let err = err.lock().await;
-                match &*err {
-                    Some(err) => Some(err.clone()),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        types::ClientsListRespItem {
-            client_id: $self.client_conf.client_id.clone(),
-            status: $self.status,
-            addr: $self.client_conf.host.clone(),
-            err,
-        }
-    }};
-}
+// #[macro_export]
+// macro_rules! read {
+//     ($self:expr) => {{
+//         let err = match &$self.err {
+//             Some(err) => {
+//                 let err = err.lock().await;
+//                 match &*err {
+//                     Some(err) => Some(err.clone()),
+//                     None => None,
+//                 }
+//             }
+//             None => None,
+//         };
+//         types::ClientsListRespItem {
+//             client_id: $self.client_conf.client_id.clone(),
+//             status: $self.status,
+//             addr: $self.client_conf.host.clone(),
+//             err,
+//         }
+//     }};
+// }

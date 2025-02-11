@@ -1,13 +1,13 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::lock::BiLock;
 use rumqttc::{
-    v5::{AsyncClient, ConnectionError, Event, MqttOptions},
+    v5::{AsyncClient, MqttOptions},
     Transport,
 };
-use tokio::{select, sync::watch};
+use tokio::sync::watch;
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
     ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
@@ -15,7 +15,7 @@ use types::{
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    read, stop, update, update_publish, update_status, update_subscribe,
+    update, update_publish, update_status, update_subscribe,
 };
 
 use super::{
@@ -79,71 +79,71 @@ pub fn new(
 
 #[async_trait]
 impl Client for WebsocketClientV50 {
-    async fn start(&mut self) {
-        let mut mqtt_options = MqttOptions::new(
-            self.client_conf.client_id.clone(),
-            self.client_conf.host.clone(),
-            self.group_conf.port,
-        );
+    async fn start(&self) {
+        // let mut mqtt_options = MqttOptions::new(
+        //     self.client_conf.client_id.clone(),
+        //     self.client_conf.host.clone(),
+        //     self.group_conf.port,
+        // );
 
-        if let Some(ssl_conf) = &self.group_conf.ssl_conf {
-            let config = get_ssl_config(ssl_conf);
-            let transport =
-                rumqttc::Transport::Wss(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
-            mqtt_options.set_transport(transport);
-        } else {
-            mqtt_options.set_transport(Transport::Ws);
-        }
+        // if let Some(ssl_conf) = &self.group_conf.ssl_conf {
+        //     let config = get_ssl_config(ssl_conf);
+        //     let transport =
+        //         rumqttc::Transport::Wss(rumqttc::TlsConfiguration::Rustls(Arc::new(config)));
+        //     mqtt_options.set_transport(transport);
+        // } else {
+        //     mqtt_options.set_transport(Transport::Ws);
+        // }
 
-        // mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
-        match (&self.client_conf.username, &self.client_conf.password) {
-            (Some(username), Some(password)) => {
-                mqtt_options.set_credentials(username.clone(), password.clone());
-            }
-            (None, Some(password)) => {
-                mqtt_options.set_credentials("", password.clone());
-            }
-            (Some(username), None) => {
-                mqtt_options.set_credentials(username.clone(), "");
-            }
-            _ => {}
-        }
-
-        let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
-        let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
-        self.client = Some(client);
-        self.stop_signal_tx = Some(stop_signal_tx);
-
-        let packet_metrics = self.packet_metrics.clone();
-
-        let (err1, err2) = BiLock::new(None);
-        self.err = Some(err1);
-        // tokio::spawn(async move {
-        //     let mut error_manager = ErrorManager::new(err2);
-        //     loop {
-        //         select! {
-        //             _ = stop_signal_rx.changed() => {
-        //                 return;
-        //             }
-
-        //             event = eventloop.poll() => {
-        //                 Self::handle_event(&packet_metrics, event, &mut error_manager).await;
-        //             }
-        //         }
+        // // mqtt_options.set_keep_alive(Duration::from_secs(self.client_conf.keep_alive));
+        // match (&self.client_conf.username, &self.client_conf.password) {
+        //     (Some(username), Some(password)) => {
+        //         mqtt_options.set_credentials(username.clone(), password.clone());
         //     }
-        // });
+        //     (None, Some(password)) => {
+        //         mqtt_options.set_credentials("", password.clone());
+        //     }
+        //     (Some(username), None) => {
+        //         mqtt_options.set_credentials(username.clone(), "");
+        //     }
+        //     _ => {}
+        // }
 
-        for publish in self.publishes.iter_mut() {
-            publish.start(self.client.clone().unwrap());
-        }
+        // let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
+        // let (client, mut eventloop) = AsyncClient::new(mqtt_options, 8);
+        // self.client = Some(client);
+        // self.stop_signal_tx = Some(stop_signal_tx);
 
-        for subscribe in self.subscribes.iter_mut() {
-            subscribe.start(self.client.as_ref().unwrap()).await;
-        }
+        // let packet_metrics = self.packet_metrics.clone();
+
+        // let (err1, err2) = BiLock::new(None);
+        // self.err = Some(err1);
+        // // tokio::spawn(async move {
+        // //     let mut error_manager = ErrorManager::new(err2);
+        // //     loop {
+        // //         select! {
+        // //             _ = stop_signal_rx.changed() => {
+        // //                 return;
+        // //             }
+
+        // //             event = eventloop.poll() => {
+        // //                 Self::handle_event(&packet_metrics, event, &mut error_manager).await;
+        // //             }
+        // //         }
+        // //     }
+        // // });
+
+        // for publish in self.publishes.iter_mut() {
+        //     publish.start(self.client.clone().unwrap());
+        // }
+
+        // for subscribe in self.subscribes.iter_mut() {
+        //     subscribe.start(self.client.as_ref().unwrap()).await;
+        // }
     }
 
-    async fn stop(&mut self) {
-        stop!(self);
+    async fn stop(&self) {
+        // stop!(self);
     }
 
     fn publish(
@@ -164,8 +164,8 @@ impl Client for WebsocketClientV50 {
         todo!()
     }
 
-    fn update_status(&mut self, status: Status) {
-        update_status!(self, status);
+    async fn update_status(&self, status: Status) {
+        // update_status!(self, status);
     }
 
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>) {
@@ -201,6 +201,7 @@ impl Client for WebsocketClientV50 {
     }
 
     async fn read(&self) -> ClientsListRespItem {
-        read!(self)
+        // read!(self)
+        todo!()
     }
 }

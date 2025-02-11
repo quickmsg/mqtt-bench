@@ -13,7 +13,10 @@ use mqtt::protocol::v3_mini::{
 };
 use tokio::{
     select,
-    sync::{mpsc, oneshot},
+    sync::{
+        mpsc::{self, UnboundedSender},
+        oneshot,
+    },
     time,
 };
 use tracing::{debug, info};
@@ -304,97 +307,81 @@ impl Group {
 
         let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
         self.start_collect_metrics(history_metrics_1, self.broker_info.statistics_interval);
+        self.history_metrics = Some(history_metrics_2);
 
         let (start_clients_done_tx, start_clients_done_rx) = oneshot::channel();
         self.start_clients(start_clients_done_tx);
-
-        // done_tx.send(()).unwrap();
-
-        self.history_metrics = Some(history_metrics_2);
-
-        debug!("start clients done");
-
-        // if self.publishes.len() > 0 {
-        //     let pulish = self.publishes[0].1.clone();
-        //     match pulish.range {
-        //         Some(range) => {
-        //             let mut interval = tokio::time::interval(Duration::from_millis(1));
-        //             let mill_cnt = self.publishes[0].1.tps / 1000;
-        //             debug!("mill cnt {:?}", mill_cnt);
-        //             let topic = pulish.topic.clone();
-        //             let qos = match pulish.qos {
-        //                 types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-        //                 types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-        //                 types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-        //             };
-
-        //             let payload = match (pulish.size, pulish.payload) {
-        //                 (None, Some(payload)) => payload.into(),
-        //                 (Some(size), None) => {
-        //                     let mut buf = BytesMut::with_capacity(size);
-        //                     for _ in 0..size {
-        //                         buf.put_u8(0);
-        //                     }
-        //                     buf.freeze()
-        //                 }
-        //                 _ => panic!("请指定 payload 或 size"),
-        //             };
-        //             let payload = Arc::new(payload);
-        //             let mut range_pos = 0;
-        //             let mut pkid: u16 = 1;
-        //             debug!("client start publish");
-        //             loop {
-        //                 select! {
-        //                     _ = interval.tick() => {
-        //                         Self::client_publish_range(&self.clients, range, &mut range_pos, mill_cnt, &topic, qos, &payload, &mut pkid).await;
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //         None => {
-        //             let mut interval = tokio::time::interval(Duration::from_millis(1));
-        //             let mill_cnt = self.publishes[0].1.tps / 1000;
-        //             debug!("mill cnt {:?}", mill_cnt);
-        //             let topic = pulish.topic.clone();
-        //             let qos = match pulish.qos {
-        //                 types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-        //                 types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-        //                 types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-        //             };
-
-        //             let payload = match (pulish.size, pulish.payload) {
-        //                 (None, Some(payload)) => payload.into(),
-        //                 (Some(size), None) => {
-        //                     let mut buf = BytesMut::with_capacity(size);
-        //                     for _ in 0..size {
-        //                         buf.put_u8(0);
-        //                     }
-        //                     buf.freeze()
-        //                 }
-        //                 _ => panic!("请指定 payload 或 size"),
-        //             };
-        //             let payload = Arc::new(payload);
-        //             let client_pos = 0;
-        //             let client_len = self.clients.len();
-        //             let mut pkid: u16 = 1;
-        //             debug!("client start publish");
-        //             loop {
-        //                 select! {
-        //                     _ = interval.tick() => {
-        //                         Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        Self::wait_clients_start(
+            done_tx,
+            self.stop_signal_tx.clone(),
+            self.clients.clone(),
+            self.publishes.clone(),
+            start_clients_done_rx,
+        );
     }
 
-    async fn wait_clients_start(start_clients_done_rx: oneshot::Receiver<()>) {}
+    fn wait_clients_start(
+        done_tx: UnboundedSender<()>,
+        stop_sgianl_tx: tokio::sync::broadcast::Sender<()>,
+        clients: Arc<Vec<Box<dyn Client>>>,
+        publishes: Vec<(Arc<String>, PublishCreateUpdateReq)>,
+        start_clients_done_rx: oneshot::Receiver<()>,
+    ) {
+        tokio::spawn(async move {
+            let _ = start_clients_done_rx.await;
+            done_tx.send(()).unwrap();
+            for (_, publish) in publishes {
+                Self::start_publish(stop_sgianl_tx.subscribe(), clients.clone(), publish);
+            }
+        });
+    }
 
-    // async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>) {
-    //     for publish in self.publishes {}
-    // }
+    fn start_publish(
+        mut stop_sginal_rx: tokio::sync::broadcast::Receiver<()>,
+        clients: Arc<Vec<Box<dyn Client>>>,
+        publish: PublishCreateUpdateReq,
+    ) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(1));
+            let mill_cnt = publish.tps / 1000;
+            debug!("mill cnt {:?}", mill_cnt);
+            let topic = publish.topic.clone();
+            let qos = match publish.qos {
+                types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+                types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+                types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+            };
+
+            let payload = match (publish.size, publish.payload) {
+                (None, Some(payload)) => payload.into(),
+                (Some(size), None) => {
+                    let mut buf = BytesMut::with_capacity(size);
+                    for _ in 0..size {
+                        buf.put_u8(0);
+                    }
+                    buf.freeze()
+                }
+                _ => panic!("请指定 payload 或 size"),
+            };
+            let payload = Arc::new(payload);
+            let client_pos = 0;
+            let client_len = clients.len();
+            // TODO pkid 重复问题
+            let mut pkid: u16 = 1;
+            debug!("client start publish");
+            loop {
+                select! {
+                    _ = stop_sginal_rx.recv() => {
+                        break;
+                    }
+
+                    _ = interval.tick() => {
+                        Self::client_publish(&clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
+                    }
+                }
+            }
+        });
+    }
 
     async fn client_publish_range(
         clients: &Vec<Box<dyn Client>>,
@@ -479,7 +466,7 @@ impl Group {
             }
         }
 
-        for client in self.clients.iter_mut() {
+        for client in self.clients.iter() {
             client.stop().await;
         }
 
@@ -996,8 +983,9 @@ impl Group {
             }
         };
 
-        for client in self.clients.iter_mut() {
-            client.update_status(client_status);
+        for client in self.clients.iter() {
+            // client.update_status(client_status);
+            todo!()
         }
     }
 

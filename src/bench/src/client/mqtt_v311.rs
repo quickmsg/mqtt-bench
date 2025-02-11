@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::lock::BiLock;
 use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use tracing::debug;
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
@@ -13,7 +13,7 @@ use types::{
 
 use crate::{
     create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    read, update, update_publish, update_status, update_subscribe,
+    update, update_publish, update_status, update_subscribe,
 };
 
 use super::{
@@ -23,10 +23,10 @@ use super::{
 };
 
 pub struct MqttClientV311 {
-    status: Status,
+    status: RwLock<Status>,
     client_conf: ClientConf,
     group_conf: Arc<ClientGroupConf>,
-    client: Option<AsyncClient>,
+    client: RwLock<Option<AsyncClient>>,
     err: Option<BiLock<Option<String>>>,
     publishes: Vec<Publish>,
     subscribes: Vec<Subscribe>,
@@ -42,10 +42,10 @@ pub fn new(
     packet_metrics: Arc<PacketAtomicMetrics>,
 ) -> Box<dyn Client> {
     Box::new(MqttClientV311 {
-        status: Status::Stopped,
+        status: RwLock::new(Status::Stopped),
         client_conf,
         group_conf,
-        client: None,
+        client: RwLock::new(None),
         err: None,
         publishes: vec![],
         subscribes: vec![],
@@ -57,7 +57,7 @@ pub fn new(
 
 #[async_trait]
 impl Client for MqttClientV311 {
-    async fn start(&mut self) {
+    async fn start(&self) {
         self.update_status(Status::Running);
         let mut mqtt_options = MqttOptions::new(
             self.client_conf.client_id.clone(),
@@ -99,31 +99,7 @@ impl Client for MqttClientV311 {
             self.packet_metrics.clone(),
         )
         .await;
-        //     Ok(client) => client,
-        //     Err(e) => {
-        //         self.client_metrics
-        //             .running_cnt
-        //             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        //         error!("客户端连接错误: {:?}", e);
-        //         return;
-        //     }
-        // };
-
-        self.client = Some(client);
-        // self.stop_signal_tx = Some(stop_signal_tx);
-
-        // let packet_metrics = self.packet_metrics.clone();
-
-        // let (err1, err2) = BiLock::new(None);
-        // self.err = Some(err1);
-
-        // for publish in self.publishes.iter_mut() {
-        //     publish.start(self.client.clone().unwrap());
-        // }
-
-        // for subscribe in self.subscribes.iter_mut() {
-        //     subscribe.start(self.client.as_ref().unwrap()).await;
-        // }
+        self.client.write().await.replace(client);
     }
 
     fn publish(
@@ -133,26 +109,26 @@ impl Client for MqttClientV311 {
         payload: Arc<Bytes>,
         pkid: u16,
     ) {
-        match &self.client {
-            Some(client) => {
-                let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
-                client.send(Packet::Publish(packet));
-            }
-            None => {}
-        }
+        // match &self.client {
+        //     Some(client) => {
+        //         let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
+        //         client.send(Packet::Publish(packet));
+        //     }
+        //     None => {}
+        // }
     }
 
     fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
         debug!("client subscirbe");
-        match &self.client {
-            Some(client) => {
-                client.send(Packet::Subscribe(sub));
-            }
-            None => {}
-        }
+        // match &self.client {
+        //     Some(client) => {
+        //         client.send(Packet::Subscribe(sub));
+        //     }
+        //     None => {}
+        // }
     }
 
-    async fn stop(&mut self) {
+    async fn stop(&self) {
         // stop!(self);
     }
 
@@ -160,8 +136,8 @@ impl Client for MqttClientV311 {
         update!(self, group_conf);
     }
 
-    fn update_status(&mut self, status: Status) {
-        update_status!(self, status);
+    async fn update_status(&self, status: Status) {
+        *self.status.write().await = status;
     }
 
     fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
@@ -193,6 +169,7 @@ impl Client for MqttClientV311 {
     }
 
     async fn read(&self) -> ClientsListRespItem {
-        read!(self)
+        todo!()
+        // read!(self)
     }
 }
