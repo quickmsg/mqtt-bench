@@ -1,18 +1,19 @@
 use std::{
     collections::VecDeque,
-    sync::{atomic::AtomicUsize, Arc, LazyLock},
+    sync::{Arc, LazyLock},
 };
 
 use anyhow::{bail, Result};
-use futures::lock::BiLock;
 use group::Group;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    RwLock,
+};
 use tracing::debug;
 use types::{
-    BrokerUpdateReq, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams, GroupCreateReq,
-    GroupListResp, GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp,
-    MetricsListResp, MetricsQueryParams, PacketUsizeMetrics, ReadGroupResp, Status,
-    SubscribeCreateUpdateReq,
+    BrokerUpdateReq, ClientsListResp, ClientsQueryParams, GroupCreateReq, GroupListResp,
+    GroupListRespItem, GroupUpdateReq, ListPublishResp, ListSubscribeResp, MetricsListResp,
+    MetricsQueryParams, ReadGroupResp, Status, SubscribeCreateUpdateReq,
 };
 use uuid::Uuid;
 
@@ -23,68 +24,152 @@ static RUNTIME_INSTANCE: LazyLock<RuntimeInstance> = LazyLock::new(|| Default::d
 static TASK_QUEUE: LazyLock<TaskQueue> = LazyLock::new(|| TaskQueue::new());
 
 struct TaskQueue {
-    get_task_signal_tx: mpsc::UnboundedSender<()>,
-    queue: BiLock<VecDeque<String>>,
+    cmd_tx: UnboundedSender<Command>,
+    // get_task_signal_tx: mpsc::UnboundedSender<()>,
+    // queue: BiLock<VecDeque<String>>,
 }
 
 impl TaskQueue {
     pub fn new() -> Self {
-        let (queue1, queue2) = BiLock::new(VecDeque::new());
-        let (get_task_signal_tx, get_task_signal_rx) = mpsc::unbounded_channel();
-        Self::start(queue1, get_task_signal_rx);
+        let (cmd_tx, cmd_rx) = unbounded_channel();
+        TaskQueueLoop::new(cmd_rx).run();
+        Self { cmd_tx }
+        // let (queue1, queue2) = BiLock::new(VecDeque::new());
+        // let (get_task_signal_tx, get_task_signal_rx) = mpsc::unbounded_channel();
+        // Self::start(queue1, get_task_signal_rx);
+        // Self {
+        //     get_task_signal_tx,
+        //     queue: queue2,
+        // }
+    }
+
+    pub fn start_group(&self, group_id: String) {
+        self.cmd_tx.send(Command::Start(group_id)).unwrap();
+    }
+
+    // pub async fn put_task(&self, group_id: String) {
+    //     RUNTIME_INSTANCE
+    //         .groups
+    //         .write()
+    //         .await
+    //         .iter_mut()
+    //         .find(|g| g.id == group_id)
+    //         .unwrap()
+    //         .update_status(types::Status::Waiting)
+    //         .await;
+    //     self.queue.lock().await.push_back(group_id);
+    //     self.get_task_signal_tx.send(()).unwrap();
+    // }
+
+    // pub fn start(
+    //     queue: BiLock<VecDeque<String>>,
+    //     mut get_task_signal_rx: mpsc::UnboundedReceiver<()>,
+    // ) {
+    //     let (job_finished_signal_tx, mut job_finished_signal_rx) = mpsc::unbounded_channel();
+    //     tokio::spawn(async move {
+    //         loop {
+    //             get_task_signal_rx.recv().await;
+    //             if let Some(group_id) = queue.lock().await.pop_front() {
+    //                 RUNTIME_INSTANCE
+    //                     .groups
+    //                     .write()
+    //                     .await
+    //                     .iter_mut()
+    //                     .find(|g| g.id == group_id)
+    //                     .unwrap()
+    //                     .start(job_finished_signal_tx.clone())
+    //                     .await;
+    //                 debug!("group {} starting", group_id);
+    //                 job_finished_signal_rx.recv().await;
+    //                 debug!("group  finisned",);
+    //                 RUNTIME_INSTANCE
+    //                     .groups
+    //                     .write()
+    //                     .await
+    //                     .iter_mut()
+    //                     .find(|g| g.id == group_id)
+    //                     .unwrap()
+    //                     .update_status(types::Status::Running)
+    //                     .await;
+    //             }
+    //         }
+    //     });
+    // }
+}
+
+enum Command {
+    Start(String),
+}
+
+struct TaskQueueLoop {
+    cmd_rx: UnboundedReceiver<Command>,
+    done_tx: UnboundedSender<()>,
+    done_rx: UnboundedReceiver<()>,
+    staring: bool,
+    wating_starts: VecDeque<String>,
+}
+
+impl TaskQueueLoop {
+    pub fn new(cmd_rx: UnboundedReceiver<Command>) -> Self {
+        let (done_tx, done_rx) = unbounded_channel();
         Self {
-            get_task_signal_tx,
-            queue: queue2,
+            cmd_rx,
+            done_tx,
+            done_rx,
+            staring: false,
+            wating_starts: VecDeque::new(),
         }
     }
 
-    pub async fn put_task(&self, group_id: String) {
-        RUNTIME_INSTANCE
-            .groups
-            .write()
-            .await
-            .iter_mut()
-            .find(|g| g.id == group_id)
-            .unwrap()
-            .update_status(types::Status::Waiting)
-            .await;
-        self.queue.lock().await.push_back(group_id);
-        self.get_task_signal_tx.send(()).unwrap();
-    }
-
-    pub fn start(
-        queue: BiLock<VecDeque<String>>,
-        mut get_task_signal_rx: mpsc::UnboundedReceiver<()>,
-    ) {
-        let (job_finished_signal_tx, mut job_finished_signal_rx) = mpsc::unbounded_channel();
+    pub fn run(mut self) {
         tokio::spawn(async move {
             loop {
-                get_task_signal_rx.recv().await;
-                if let Some(group_id) = queue.lock().await.pop_front() {
-                    RUNTIME_INSTANCE
-                        .groups
-                        .write()
-                        .await
-                        .iter_mut()
-                        .find(|g| g.id == group_id)
-                        .unwrap()
-                        .start(job_finished_signal_tx.clone())
-                        .await;
-                    debug!("group {} starting", group_id);
-                    job_finished_signal_rx.recv().await;
-                    debug!("group  finisned",);
-                    RUNTIME_INSTANCE
-                        .groups
-                        .write()
-                        .await
-                        .iter_mut()
-                        .find(|g| g.id == group_id)
-                        .unwrap()
-                        .update_status(types::Status::Running)
-                        .await;
+                tokio::select! {
+                    cmd = self.cmd_rx.recv() => {
+                        self.process_cmd(cmd).await;
+                    }
+                    _ = self.done_rx.recv() => {
+                        self.process_done().await;
+                    }
                 }
             }
         });
+    }
+
+    async fn process_cmd(&mut self, cmd: Option<Command>) {
+        let cmd = cmd.unwrap();
+        match cmd {
+            Command::Start(group_id) => {
+                if self.staring {
+                    self.wating_starts.push_back(group_id);
+                } else {
+                    self.staring = true;
+                    RUNTIME_INSTANCE
+                        .groups
+                        .write()
+                        .await
+                        .iter_mut()
+                        .find(|g| g.id == group_id)
+                        .unwrap()
+                        .start(self.done_tx.clone());
+                }
+            }
+        }
+    }
+
+    async fn process_done(&mut self) {
+        if let Some(group_id) = self.wating_starts.pop_front() {
+            RUNTIME_INSTANCE
+                .groups
+                .write()
+                .await
+                .iter_mut()
+                .find(|g| g.id == group_id)
+                .unwrap()
+                .start(self.done_tx.clone());
+        } else {
+            self.staring = false;
+        }
     }
 }
 
@@ -204,7 +289,7 @@ pub async fn delete_group(group_id: String) {
 
 pub async fn start_group(group_id: String) {
     debug!("start group: {}", group_id);
-    TASK_QUEUE.put_task(group_id.clone()).await;
+    TASK_QUEUE.start_group(group_id);
 }
 
 pub async fn stop_group(group_id: String) {
@@ -348,4 +433,3 @@ pub async fn read_metrics(group_id: String, query: MetricsQueryParams) -> Metric
         .read_metrics(query)
         .await
 }
-

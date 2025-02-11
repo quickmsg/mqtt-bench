@@ -18,7 +18,7 @@ pub mod websocket_v50;
 
 #[async_trait]
 pub trait Client: Sync + Send {
-    async fn start(&mut self);
+    async fn start(&self);
     async fn stop(&mut self);
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>);
     fn update_status(&mut self, status: Status);

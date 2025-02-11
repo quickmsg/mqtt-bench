@@ -37,7 +37,7 @@ pub struct Group {
     pub status: Status,
     pub conf: GroupCreateReq,
 
-    clients: Vec<Box<dyn Client>>,
+    clients: Arc<Vec<Box<dyn Client>>>,
 
     history_metrics: Option<BiLock<Vec<(u64, ClientUsizeMetrics, PacketUsizeMetrics)>>>,
     broker_info: Arc<BrokerUpdateReq>,
@@ -82,6 +82,7 @@ impl Group {
             &packet_metrics,
             clients_conf,
         );
+        let clients = Arc::new(clients);
 
         Self {
             id,
@@ -292,7 +293,8 @@ impl Group {
         clients
     }
 
-    pub async fn start(&mut self, job_finished_signal_tx: mpsc::UnboundedSender<()>) {
+    pub fn start(&mut self, done_tx: mpsc::UnboundedSender<()>) {
+        tokio::spawn(async move {});
         match self.status {
             Status::Starting | Status::Running => return,
             Status::Stopped | Status::Waiting | Status::Updating => {
@@ -303,108 +305,96 @@ impl Group {
         let (history_metrics_1, history_metrics_2) = BiLock::new(Vec::new());
         self.start_collect_metrics(history_metrics_1, self.broker_info.statistics_interval);
 
-        let (tx, rx) = oneshot::channel::<()>();
+        let (start_clients_done_tx, start_clients_done_rx) = oneshot::channel();
+        self.start_clients(start_clients_done_tx);
+
+        // done_tx.send(()).unwrap();
 
         self.history_metrics = Some(history_metrics_2);
-        self.start_clients(job_finished_signal_tx, tx).await;
 
         debug!("start clients done");
 
-        if self.publishes.len() > 0 {
-            let pulish = self.publishes[0].1.clone();
-            match pulish.range {
-                Some(range) => {
-                    let mut interval = tokio::time::interval(Duration::from_millis(1));
-                    let mill_cnt = self.publishes[0].1.tps / 1000;
-                    debug!("mill cnt {:?}", mill_cnt);
-                    let topic = pulish.topic.clone();
-                    let qos = match pulish.qos {
-                        types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-                        types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-                        types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-                    };
+        // if self.publishes.len() > 0 {
+        //     let pulish = self.publishes[0].1.clone();
+        //     match pulish.range {
+        //         Some(range) => {
+        //             let mut interval = tokio::time::interval(Duration::from_millis(1));
+        //             let mill_cnt = self.publishes[0].1.tps / 1000;
+        //             debug!("mill cnt {:?}", mill_cnt);
+        //             let topic = pulish.topic.clone();
+        //             let qos = match pulish.qos {
+        //                 types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+        //                 types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+        //                 types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+        //             };
 
-                    let payload = match (pulish.size, pulish.payload) {
-                        (None, Some(payload)) => payload.into(),
-                        (Some(size), None) => {
-                            let mut buf = BytesMut::with_capacity(size);
-                            for _ in 0..size {
-                                buf.put_u8(0);
-                            }
-                            buf.freeze()
-                        }
-                        _ => panic!("请指定 payload 或 size"),
-                    };
-                    let payload = Arc::new(payload);
-                    let mut range_pos = 0;
-                    let mut pkid: u16 = 1;
-                    debug!("client start publish");
-                    loop {
-                        select! {
-                            _ = interval.tick() => {
-                                Self::client_publish_range(&self.clients, range, &mut range_pos, mill_cnt, &topic, qos, &payload, &mut pkid).await;
-                            }
-                        }
-                    }
-                }
-                None => {
-                    let mut interval = tokio::time::interval(Duration::from_millis(1));
-                    let mill_cnt = self.publishes[0].1.tps / 1000;
-                    debug!("mill cnt {:?}", mill_cnt);
-                    let topic = pulish.topic.clone();
-                    let qos = match pulish.qos {
-                        types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-                        types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-                        types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-                    };
+        //             let payload = match (pulish.size, pulish.payload) {
+        //                 (None, Some(payload)) => payload.into(),
+        //                 (Some(size), None) => {
+        //                     let mut buf = BytesMut::with_capacity(size);
+        //                     for _ in 0..size {
+        //                         buf.put_u8(0);
+        //                     }
+        //                     buf.freeze()
+        //                 }
+        //                 _ => panic!("请指定 payload 或 size"),
+        //             };
+        //             let payload = Arc::new(payload);
+        //             let mut range_pos = 0;
+        //             let mut pkid: u16 = 1;
+        //             debug!("client start publish");
+        //             loop {
+        //                 select! {
+        //                     _ = interval.tick() => {
+        //                         Self::client_publish_range(&self.clients, range, &mut range_pos, mill_cnt, &topic, qos, &payload, &mut pkid).await;
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //         None => {
+        //             let mut interval = tokio::time::interval(Duration::from_millis(1));
+        //             let mill_cnt = self.publishes[0].1.tps / 1000;
+        //             debug!("mill cnt {:?}", mill_cnt);
+        //             let topic = pulish.topic.clone();
+        //             let qos = match pulish.qos {
+        //                 types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+        //                 types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+        //                 types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+        //             };
 
-                    let payload = match (pulish.size, pulish.payload) {
-                        (None, Some(payload)) => payload.into(),
-                        (Some(size), None) => {
-                            let mut buf = BytesMut::with_capacity(size);
-                            for _ in 0..size {
-                                buf.put_u8(0);
-                            }
-                            buf.freeze()
-                        }
-                        _ => panic!("请指定 payload 或 size"),
-                    };
-                    let payload = Arc::new(payload);
-                    let client_pos = 0;
-                    let client_len = self.clients.len();
-                    let mut pkid: u16 = 1;
-                    debug!("client start publish");
-                    loop {
-                        select! {
-                            _ = interval.tick() => {
-                                Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // } else if self.subscribes.len() > 0 {
-        //     let subscribe = self.subscribes[0].1.clone();
-        //     let topic = subscribe.topic.clone();
-        //     let qos = match subscribe.qos {
-        //         types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-        //         types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-        //         types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
-        //     };
-        //     let client_pos = 0;
-        //     let client_len = self.clients.len();
-        //     let mut pkid: u16 = 1;
-        //     let mill_cnt = 1;
-        //     loop {
-        //         select! {
-        //             _ = interval.tick() => {
-        //                 Self::client_subscribe(&self.clients, client_pos, mill_cnt, &topic, qos, client_len, &pkid).await;
+        //             let payload = match (pulish.size, pulish.payload) {
+        //                 (None, Some(payload)) => payload.into(),
+        //                 (Some(size), None) => {
+        //                     let mut buf = BytesMut::with_capacity(size);
+        //                     for _ in 0..size {
+        //                         buf.put_u8(0);
+        //                     }
+        //                     buf.freeze()
+        //                 }
+        //                 _ => panic!("请指定 payload 或 size"),
+        //             };
+        //             let payload = Arc::new(payload);
+        //             let client_pos = 0;
+        //             let client_len = self.clients.len();
+        //             let mut pkid: u16 = 1;
+        //             debug!("client start publish");
+        //             loop {
+        //                 select! {
+        //                     _ = interval.tick() => {
+        //                         Self::client_publish(&self.clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
+        //                     }
+        //                 }
         //             }
         //         }
         //     }
         // }
     }
+
+    async fn wait_clients_start(start_clients_done_rx: oneshot::Receiver<()>) {}
+
+    // async fn publish(&self, topic: String, qos: mqtt::protocol::v3_mini::QoS, payload: Arc<Bytes>) {
+    //     for publish in self.publishes {}
+    // }
 
     async fn client_publish_range(
         clients: &Vec<Box<dyn Client>>,
@@ -564,45 +554,41 @@ impl Group {
         //     .push((ts, client_usize_metrics, pakcet_usize_metrics));
     }
 
-    async fn start_clients(
-        &mut self,
-        job_finished_signal_tx: mpsc::UnboundedSender<()>,
-        tx: oneshot::Sender<()>,
-    ) {
-        let mut connect_interval = time::interval(time::Duration::from_millis(
+    fn start_clients(&mut self, done_tx: oneshot::Sender<()>) {
+        let mut connect_interval = time::interval(time::Duration::from_micros(
             self.broker_info.connect_interval,
         ));
 
         let mut stop_signal_rx = self.stop_signal_tx.subscribe();
         let mut index = 0;
-
-        let client_count = self.clients.len();
-
-        loop {
-            select! {
-                _ = stop_signal_rx.recv() => {
-                    debug!("sotp signal rx recv");
-                    break;
-                }
-
-                _ = connect_interval.tick() => {
-                    if index < client_count {
-                        self.clients[index].start().await;
-                        match self.get_sub(index) {
-                            Some(sub) => {
-                                self.clients[index].subscribe(sub);
-                            }
-                            None => {}
-                        }
-                        index += 1;
-                    } else {
-                        job_finished_signal_tx.send(()).unwrap();
-                        tx.send(()).unwrap();
+        let clients = self.clients.clone();
+        tokio::spawn(async move {
+            loop {
+                select! {
+                    _ = stop_signal_rx.recv() => {
+                        debug!("sotp signal rx recv");
+                        // TODO 停止client
                         break;
+                    }
+
+                    _ = connect_interval.tick() => {
+                        if index < clients.len() {
+                            clients[index].start().await;
+                            // match self.get_sub(index) {
+                            //     Some(sub) => {
+                            //         self.clients[index].subscribe(sub);
+                            //     }
+                            //     None => {}
+                            // }
+                            index += 1;
+                        } else {
+                            done_tx.send(()).unwrap();
+                            break;
+                        }
                     }
                 }
             }
-        }
+        });
     }
 
     fn get_sub(&self, index: usize) -> Option<Subscribe> {

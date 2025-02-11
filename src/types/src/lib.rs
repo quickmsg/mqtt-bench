@@ -14,7 +14,7 @@ pub struct BrokerUpdateReq {
     pub username: Option<String>,
     pub password: Option<String>,
     pub client_id: Option<String>,
-    // 每毫秒
+    // 每micro秒
     pub connect_interval: u64,
     // 秒
     pub statistics_interval: u64,
