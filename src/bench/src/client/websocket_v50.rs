@@ -18,11 +18,7 @@ use crate::{
     update, update_publish, update_status, update_subscribe,
 };
 
-use super::{
-    ssl::get_ssl_config,
-    v50::{Publish, Subscribe},
-    Client, ClientConf,
-};
+use super::{ssl::get_ssl_config, Client, ClientConf};
 
 pub struct WebsocketClientV50 {
     status: Status,
@@ -30,8 +26,6 @@ pub struct WebsocketClientV50 {
     group_conf: Arc<ClientGroupConf>,
     client: Option<AsyncClient>,
     err: Option<BiLock<Option<String>>>,
-    publishes: Vec<Publish>,
-    subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
     client_metrics: Arc<ClientAtomicMetrics>,
     packet_metrics: Arc<PacketAtomicMetrics>,
@@ -49,8 +43,6 @@ pub fn new(
         group_conf,
         client: None,
         err: None,
-        publishes: vec![],
-        subscribes: vec![],
         stop_signal_tx: None,
         client_metrics,
         packet_metrics,

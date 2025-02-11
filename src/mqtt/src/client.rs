@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
 use crate::{protocol::v3_mini::v4::Packet, EventLoop, MqttOptions};
 
 #[derive(Clone, Debug)]
 pub struct AsyncClient {
-    request_tx: UnboundedSender<Packet>,
+    request_tx: mpsc::Sender<Packet>,
 }
 
 impl AsyncClient {
@@ -21,7 +21,7 @@ impl AsyncClient {
         client
     }
 
-    pub fn send(&self, packet: Packet) {
-        let _ = self.request_tx.send(packet);
+    pub async fn send(&self, packet: Packet) {
+        let _ = self.request_tx.send(packet).await;
     }
 }

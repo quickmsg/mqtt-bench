@@ -11,8 +11,6 @@ pub mod mqtt_v311;
 pub mod mqtt_v50;
 mod ssl;
 mod ssl_new;
-mod v311;
-mod v50;
 pub mod websocket_v311;
 pub mod websocket_v50;
 

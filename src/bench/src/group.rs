@@ -114,7 +114,6 @@ impl Group {
     ) -> Vec<Box<dyn Client>> {
         match clients_conf {
             Some(clients_conf) => Self::new_conf_clients(
-                group_id,
                 broker_info,
                 group_conf,
                 client_group_conf,
@@ -227,7 +226,6 @@ impl Group {
     }
 
     fn new_conf_clients(
-        group_id: &String,
         broker_info: &Arc<BrokerUpdateReq>,
         group_conf: &GroupCreateReq,
         client_group_conf: Arc<ClientGroupConf>,
@@ -379,33 +377,6 @@ impl Group {
                 }
             }
         });
-    }
-
-    async fn client_publish_range(
-        clients: &Vec<Box<dyn Client>>,
-        range: usize,
-        range_pos: &mut usize,
-        mill_cnt: usize,
-        topic: &String,
-        qos: u8,
-        payload: &Arc<Bytes>,
-        pkid: &mut u16,
-    ) {
-        for _ in 0..mill_cnt {
-            *pkid += 1;
-            if *pkid == u16::MAX {
-                *pkid = 1;
-            }
-
-            let topic = topic.replace("{index}", range_pos.to_string().as_str());
-            clients[0].publish(topic, qos, payload.clone());
-
-            if *range_pos == range {
-                *range_pos = 0;
-            } else {
-                *range_pos += 1;
-            }
-        }
     }
 
     async fn client_publish(
@@ -886,30 +857,38 @@ impl Group {
             (None, None) => {
                 let mut list = vec![];
                 let mut conn_ack_total = 0;
-                let mut pub_ack_total = 0;
                 let mut unsub_ack_total = 0;
                 let mut ping_req_total = 0;
                 let mut ping_resp_total = 0;
-                let mut outgoing_publish_total = 0;
-                let mut incoming_publish_total = 0;
-                let mut pub_rel_total = 0;
-                let mut pub_rec_total = 0;
-                let mut pub_comp_total = 0;
+                let mut in_publish_total = 0;
+                let mut out_publish_total = 0;
+                let mut in_pub_ack_total = 0;
+                let mut out_pub_ack_total = 0;
+                let mut in_pub_rec_total = 0;
+                let mut out_pub_rec_total = 0;
+                let mut in_pub_rel_total = 0;
+                let mut out_pub_rel_total = 0;
+                let mut in_pub_comp_total = 0;
+                let mut out_pub_comp_total = 0;
                 let mut subscribe_total = 0;
                 let mut sub_ack_total = 0;
                 let mut unsubscribe_total = 0;
                 let mut disconnect_total = 0;
                 for metric in self.history_metrics.as_ref().unwrap().lock().await.iter() {
                     conn_ack_total += metric.2.conn_ack;
-                    pub_ack_total += metric.2.pub_ack;
+                    in_publish_total += metric.2.in_publish;
+                    out_publish_total += metric.2.out_publish;
+                    in_pub_ack_total += metric.2.in_pub_ack;
+                    out_pub_ack_total += metric.2.out_pub_ack;
                     unsub_ack_total += metric.2.unsub_ack;
                     ping_req_total += metric.2.ping_req;
                     ping_resp_total += metric.2.ping_resp;
-                    outgoing_publish_total += metric.2.outgoing_publish;
-                    incoming_publish_total += metric.2.incoming_publish;
-                    pub_rel_total += metric.2.pub_rel;
-                    pub_rec_total += metric.2.pub_rec;
-                    pub_comp_total += metric.2.pub_comp;
+                    in_pub_rec_total += metric.2.in_pub_rec;
+                    out_pub_rec_total += metric.2.out_pub_rec;
+                    in_pub_rel_total += metric.2.in_pub_rel;
+                    out_pub_rel_total += metric.2.out_pub_rel;
+                    in_pub_comp_total += metric.2.in_pub_comp;
+                    out_pub_comp_total += metric.2.out_pub_comp;
                     subscribe_total += metric.2.subscribe;
                     sub_ack_total += metric.2.sub_ack;
                     unsubscribe_total += metric.2.unsubscribe;
@@ -926,7 +905,6 @@ impl Group {
                         packet: PacketMetrics {
                             conn_ack_total,
                             conn_ack_cnt: metric.2.conn_ack,
-                            pub_ack_total,
                             pub_ack_cnt: metric.2.pub_ack,
                             unsub_ack_total,
                             unsub_ack_cnt: metric.2.unsub_ack,

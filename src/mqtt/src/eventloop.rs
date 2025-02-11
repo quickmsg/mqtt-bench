@@ -1,16 +1,15 @@
 use futures_util::StreamExt;
 use tokio::net::{lookup_host, TcpSocket, TcpStream};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio::{select, time};
 use tracing::{debug, error};
 use types::group::{ClientAtomicMetrics, PacketAtomicMetrics};
 
-use crate::protocol::v3_mini;
 use crate::protocol::v3_mini::v4::{ConnAck, Connect, ConnectReturnCode, Packet};
-use crate::state::StateError;
 use crate::MqttOptions;
+use crate::NetworkOptions;
 use crate::{framed::Network, Transport};
-use crate::{Incoming, NetworkOptions};
 
 use crate::framed::AsyncReadWrite;
 
@@ -36,8 +35,8 @@ use crate::proxy::ProxyError;
 /// Critical errors during eventloop polling
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectionError {
-    #[error("Mqtt state: {0}")]
-    MqttState(#[from] StateError),
+    // #[error("Mqtt state: {0}")]
+    // MqttState(#[from] StateError),
     #[error("Network timeout")]
     NetworkTimeout,
     #[error("Flush timeout")]
@@ -65,17 +64,12 @@ pub enum ConnectionError {
     ResponseValidation(#[from] crate::websockets::ValidationError),
 }
 
-/// Eventloop with all the state of a connection
 pub struct EventLoop {
-    /// Options of the current mqtt connection
     pub mqtt_options: MqttOptions,
-    /// Request stream
-    requests_rx: UnboundedReceiver<Packet>,
-    /// Requests handle to send requests
-    // pub(crate) requests_tx: Sender<Packet>,
-    /// Network connection to the broker
+    requests_rx: mpsc::Receiver<Packet>,
     pub network: Option<Network>,
     pub network_options: NetworkOptions,
+    pub packet_metrics: Arc<PacketAtomicMetrics>,
 }
 
 impl EventLoop {
@@ -83,8 +77,8 @@ impl EventLoop {
         client_metrics: Arc<ClientAtomicMetrics>,
         mqtt_options: MqttOptions,
         packet_metrics: Arc<PacketAtomicMetrics>,
-    ) -> UnboundedSender<Packet> {
-        let (requests_tx, requests_rx) = unbounded_channel();
+    ) -> mpsc::Sender<Packet> {
+        let (requests_tx, requests_rx) = mpsc::channel(1);
 
         tokio::spawn(async move {
             let mut eventloop = EventLoop {
@@ -92,41 +86,40 @@ impl EventLoop {
                 requests_rx,
                 network: None,
                 network_options: NetworkOptions::new(),
+                packet_metrics,
             };
 
             if let Some(local_ip) = &eventloop.mqtt_options.local_ip {
                 eventloop.network_options.local_ip = Some(local_ip.clone());
             }
 
-            let network = match eventloop.connect(&packet_metrics).await {
-                Ok(network) => {
-                    debug!("network connect success");
-                    network
+            loop {
+                match eventloop.connect().await {
+                    Ok(network) => {
+                        debug!("network connect success");
+                        eventloop = eventloop.run_loop(network).await.unwrap();
+                    }
+                    Err(e) => {
+                        client_metrics
+                            .error_cnt
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        error!("connect error: {:?}", e);
+                        time::sleep(Duration::from_secs(3)).await;
+                    }
                 }
-                Err(e) => {
-                    client_metrics
-                        .error_cnt
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    error!("connect error: {:?}", e);
-                    return;
-                }
-            };
-            eventloop.run_long_time(network, packet_metrics);
+            }
         });
 
         requests_tx
     }
 
-    pub async fn connect(
-        &mut self,
-        packet_metrics: &Arc<PacketAtomicMetrics>,
-    ) -> Result<Network, ConnectionError> {
-        let (network, connack) = match time::timeout(
+    pub async fn connect(&mut self) -> Result<Network, ConnectionError> {
+        let (network, _connack) = match time::timeout(
             Duration::from_secs(self.network_options.connection_timeout()),
             connect(
                 &self.mqtt_options,
                 self.network_options.clone(),
-                packet_metrics,
+                &self.packet_metrics,
             ),
         )
         .await
@@ -134,82 +127,31 @@ impl EventLoop {
             Ok(inner) => inner?,
             Err(_) => return Err(ConnectionError::NetworkTimeout),
         };
-        debug!("conn ack: {:?}", connack);
-        packet_metrics
+        self.packet_metrics
             .conn_ack
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(network)
     }
 
-    fn run_long_time(mut self, mut network: Network, packet_metrics: Arc<PacketAtomicMetrics>) {
+    fn run_loop(mut self, mut network: Network) -> JoinHandle<Self> {
         tokio::spawn(async move {
             loop {
                 select! {
                     packet = network.framed.next() => {
-                        if !network.handle_incoming_packet(packet, &packet_metrics).await {
-                            return
+                        if !network.handle_incoming_packet(packet, &self.packet_metrics).await {
+                            return self;
                         }
                     }
-                    r = self.requests_rx.recv() => {
-                        match r {
-                            Some(r) => {
-                                if let Err(e) = network.write(r, &packet_metrics).await {
-                                    error!("network write error: {:?}", e);
-                                    return;
-                                }
-                                match time::timeout(Duration::from_secs(3), network.flush()).await {
-                                    Ok(inner) => {
-                                        match inner {
-                                        Ok(_) => {}
-                                        Err(e) => {
-                                            error!("network Flush timeout, err :{:?}", e);
-                                            return;
-                                        }
-                                    }
-                                    },
-                                    Err(_)=> {
-                                        error!("network Flush timeout");
-                                        return;
-                                    }
-                                };
-                            }
-                            None => {
-                                // error!("requests_rx recv error: {:?}", e);
-                                return;
-                            }
+
+                    Some(r) = self.requests_rx.recv() => {
+                        if let Err(e) = network.write(r, &self.packet_metrics).await {
+                            error!("network write error: {:?}", e);
+                            return self;
                         }
                     }
                 }
             }
-        });
-    }
-
-    fn handle_incoming_packet(
-        packet: Option<Result<Packet, v3_mini::Error>>,
-        packet_metrics: &Arc<PacketAtomicMetrics>,
-    ) -> bool {
-        match packet {
-            Some(packet) => match packet {
-                Ok(packet) => match packet {
-                    Packet::Connect(connect) => todo!(),
-                    Packet::ConnAck(conn_ack) => todo!(),
-                    Packet::Publish(publish) => todo!(),
-                    Packet::PubAck(pub_ack) => todo!(),
-                    Packet::PubRec(pub_rec) => todo!(),
-                    Packet::PubRel(pub_rel) => todo!(),
-                    Packet::PubComp(pub_comp) => todo!(),
-                    Packet::Subscribe(subscribe) => todo!(),
-                    Packet::SubAck(sub_ack) => todo!(),
-                    Packet::Unsubscribe(unsubscribe) => todo!(),
-                    Packet::UnsubAck(unsub_ack) => todo!(),
-                    Packet::PingReq => todo!(),
-                    Packet::PingResp => todo!(),
-                    Packet::Disconnect => todo!(),
-                },
-                Err(_) => todo!(),
-            },
-            None => false,
-        }
+        })
     }
 
     pub fn network_options(&self) -> NetworkOptions {
@@ -422,12 +364,15 @@ async fn mqtt_connect(
     network
         .write(Packet::Connect(connect), &packet_metrics)
         .await?;
-    network.flush().await?;
 
-    // validate connack
-    match network.read().await? {
-        Incoming::ConnAck(connack) if connack.code == ConnectReturnCode::Success => Ok(connack),
-        Incoming::ConnAck(connack) => Err(ConnectionError::ConnectionRefused(connack.code)),
-        _packet => Err(ConnectionError::NotConnAck),
+    match network.framed.next().await {
+        Some(packet) => match packet {
+            Ok(packet) => match packet {
+                Packet::ConnAck(conn_ack) => Ok(conn_ack),
+                _ => Err(ConnectionError::NotConnAck),
+            },
+            Err(_e) => Err(ConnectionError::RequestsDone),
+        },
+        None => Err(ConnectionError::RequestsDone),
     }
 }

@@ -1,7 +1,4 @@
-use std::{
-    ops::{Add, AddAssign},
-    sync::Arc,
-};
+use std::{ops::AddAssign, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -174,7 +171,7 @@ pub struct PacketUsizeMetrics {
     // 连接确认
     pub conn_ack: usize,
     // 发布确认
-    pub pub_ack: usize,
+
     // 取消订阅确认
     pub unsub_ack: usize,
     // ping请求
@@ -182,13 +179,21 @@ pub struct PacketUsizeMetrics {
     // ping响应
     pub ping_resp: usize,
     // 发布
-    pub outgoing_publish: usize,
+    pub in_publish: usize,
+    pub out_publish: usize,
 
-    pub incoming_publish: usize,
+    pub in_pub_ack: usize,
+    pub out_pub_ack: usize,
 
-    pub pub_rel: usize,
-    pub pub_rec: usize,
-    pub pub_comp: usize,
+    pub in_pub_rel: usize,
+    pub out_pub_rel: usize,
+
+    pub in_pub_rec: usize,
+    pub out_pub_rec: usize,
+
+    pub in_pub_comp: usize,
+    pub out_pub_comp: usize,
+
     // 订阅
     pub subscribe: usize,
     // 订阅确认
@@ -202,15 +207,19 @@ pub struct PacketUsizeMetrics {
 impl AddAssign for PacketUsizeMetrics {
     fn add_assign(&mut self, rhs: Self) {
         self.conn_ack += rhs.conn_ack;
-        self.pub_ack += rhs.pub_ack;
         self.unsub_ack += rhs.unsub_ack;
         self.ping_req += rhs.ping_req;
         self.ping_resp += rhs.ping_resp;
-        self.outgoing_publish += rhs.outgoing_publish;
-        self.incoming_publish += rhs.incoming_publish;
-        self.pub_rel += rhs.pub_rel;
-        self.pub_rec += rhs.pub_rec;
-        self.pub_comp += rhs.pub_comp;
+        self.in_publish += rhs.in_publish;
+        self.out_publish += rhs.out_publish;
+        self.in_pub_ack += rhs.in_pub_ack;
+        self.out_pub_ack += rhs.out_pub_ack;
+        self.in_pub_rel += rhs.in_pub_rel;
+        self.out_pub_rel += rhs.out_pub_rel;
+        self.in_pub_rec += rhs.in_pub_rec;
+        self.out_pub_rec += rhs.out_pub_rec;
+        self.in_pub_comp += rhs.in_pub_comp;
+        self.out_pub_comp += rhs.out_pub_comp;
         self.subscribe += rhs.subscribe;
         self.sub_ack += rhs.sub_ack;
         self.unsubscribe += rhs.unsubscribe;
