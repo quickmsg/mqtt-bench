@@ -25,8 +25,6 @@ static TASK_QUEUE: LazyLock<TaskQueue> = LazyLock::new(|| TaskQueue::new());
 
 struct TaskQueue {
     cmd_tx: UnboundedSender<Command>,
-    // get_task_signal_tx: mpsc::UnboundedSender<()>,
-    // queue: BiLock<VecDeque<String>>,
 }
 
 impl TaskQueue {
@@ -34,67 +32,11 @@ impl TaskQueue {
         let (cmd_tx, cmd_rx) = unbounded_channel();
         TaskQueueLoop::new(cmd_rx).run();
         Self { cmd_tx }
-        // let (queue1, queue2) = BiLock::new(VecDeque::new());
-        // let (get_task_signal_tx, get_task_signal_rx) = mpsc::unbounded_channel();
-        // Self::start(queue1, get_task_signal_rx);
-        // Self {
-        //     get_task_signal_tx,
-        //     queue: queue2,
-        // }
     }
 
     pub fn start_group(&self, group_id: String) {
         self.cmd_tx.send(Command::Start(group_id)).unwrap();
     }
-
-    // pub async fn put_task(&self, group_id: String) {
-    //     RUNTIME_INSTANCE
-    //         .groups
-    //         .write()
-    //         .await
-    //         .iter_mut()
-    //         .find(|g| g.id == group_id)
-    //         .unwrap()
-    //         .update_status(types::Status::Waiting)
-    //         .await;
-    //     self.queue.lock().await.push_back(group_id);
-    //     self.get_task_signal_tx.send(()).unwrap();
-    // }
-
-    // pub fn start(
-    //     queue: BiLock<VecDeque<String>>,
-    //     mut get_task_signal_rx: mpsc::UnboundedReceiver<()>,
-    // ) {
-    //     let (job_finished_signal_tx, mut job_finished_signal_rx) = mpsc::unbounded_channel();
-    //     tokio::spawn(async move {
-    //         loop {
-    //             get_task_signal_rx.recv().await;
-    //             if let Some(group_id) = queue.lock().await.pop_front() {
-    //                 RUNTIME_INSTANCE
-    //                     .groups
-    //                     .write()
-    //                     .await
-    //                     .iter_mut()
-    //                     .find(|g| g.id == group_id)
-    //                     .unwrap()
-    //                     .start(job_finished_signal_tx.clone())
-    //                     .await;
-    //                 debug!("group {} starting", group_id);
-    //                 job_finished_signal_rx.recv().await;
-    //                 debug!("group  finisned",);
-    //                 RUNTIME_INSTANCE
-    //                     .groups
-    //                     .write()
-    //                     .await
-    //                     .iter_mut()
-    //                     .find(|g| g.id == group_id)
-    //                     .unwrap()
-    //                     .update_status(types::Status::Running)
-    //                     .await;
-    //             }
-    //         }
-    //     });
-    // }
 }
 
 enum Command {
@@ -212,11 +154,11 @@ pub async fn update_broker(info: BrokerUpdateReq) -> Result<()> {
         .iter()
         .any(|group| group.status != Status::Stopped)
     {
-        bail!("请停止所有的组后再进行修改！");
+        Err(anyhow::anyhow!("请停止所有的组后再进行修改！"))
+    } else {
+        *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
+        Ok(())
     }
-
-    *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
-    Ok(())
 }
 
 pub async fn create_group(req: GroupCreateReq) {

@@ -15,27 +15,20 @@ pub struct Publish {
 }
 
 impl Publish {
-    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Bytes>, pkid: u16) -> Publish {
+    pub fn new<S: Into<String>>(topic: S, qos: QoS, payload: Arc<Bytes>) -> Publish {
         Publish {
             dup: false,
             qos,
             retain: false,
-            pkid,
+            pkid: 0,
             topic: topic.into(),
             payload: Some(payload),
         }
     }
 
-    // pub fn from_bytes<S: Into<String>>(topic: S, qos: QoS, payload: Bytes) -> Publish {
-    //     Publish {
-    //         dup: false,
-    //         qos,
-    //         retain: false,
-    //         pkid: 0,
-    //         topic: topic.into(),
-    //         payload,
-    //     }
-    // }
+    pub fn set_pkid(&mut self, pkid: u16) {
+        self.pkid = pkid;
+    }
 
     fn len(&self) -> usize {
         let payload_len = match self.payload {
@@ -69,12 +62,14 @@ impl Publish {
         // Packet identifier exists where QoS > 0
         let pkid = match qos {
             QoS::AtMostOnce => 0,
-            QoS::AtLeastOnce | QoS::ExactlyOnce => read_u16(&mut bytes)?,
+            QoS::AtLeastOnce | QoS::ExactlyOnce => {
+                let pkid = read_u16(&mut bytes)?;
+                if pkid == 0 {
+                    return Err(Error::PacketIdZero);
+                }
+                pkid
+            }
         };
-
-        if qos != QoS::AtMostOnce && pkid == 0 {
-            return Err(Error::PacketIdZero);
-        }
 
         let publish = Publish {
             dup,
@@ -99,14 +94,16 @@ impl Publish {
         let count = write_remaining_length(buffer, len)?;
         write_mqtt_string(buffer, self.topic.as_str());
 
-        if self.qos != QoS::AtMostOnce {
-            let pkid = self.pkid;
-            if pkid == 0 {
-                return Err(Error::PacketIdZero);
-            }
+        buffer.put_u16(self.pkid);
 
-            buffer.put_u16(pkid);
-        }
+        // if self.qos != QoS::AtMostOnce {
+        //     let pkid = self.pkid;
+        //     if pkid == 0 {
+        //         return Err(Error::PacketIdZero);
+        //     }
+
+        //     buffer.put_u16(pkid);
+        // }
         buffer.put_slice(&self.payload.as_ref().unwrap());
 
         Ok(1 + count + len)

@@ -1,38 +1,35 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU16, AtomicU8},
+    Arc,
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::lock::BiLock;
-use mqtt::{protocol::v3_mini::v4::Packet, AsyncClient, MqttOptions};
+use mqtt::{
+    protocol::v3_mini::v4::{Packet, Publish},
+    AsyncClient, MqttOptions,
+};
 use tokio::sync::{watch, RwLock};
-use tracing::debug;
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
-    ClientsListRespItem, PublishConf, Status, SubscribeCreateUpdateReq,
+    ClientsListRespItem, Status,
 };
 
-use crate::{
-    create_publish, create_subscribe, delete_publish, delete_subscribe, group::ClientGroupConf,
-    update, update_publish, update_status, update_subscribe,
-};
+use crate::{group::ClientGroupConf, update};
 
-use super::{
-    ssl_new::get_ssl_config,
-    v311::{Publish, Subscribe},
-    Client, ClientConf,
-};
+use super::{ssl_new::get_ssl_config, v311::Subscribe, Client, ClientConf};
 
 pub struct MqttClientV311 {
-    status: RwLock<Status>,
+    status: AtomicU8,
     client_conf: ClientConf,
     group_conf: Arc<ClientGroupConf>,
     client: RwLock<Option<AsyncClient>>,
     err: Option<BiLock<Option<String>>>,
-    publishes: Vec<Publish>,
-    subscribes: Vec<Subscribe>,
     stop_signal_tx: Option<watch::Sender<()>>,
     client_metrics: Arc<ClientAtomicMetrics>,
     packet_metrics: Arc<PacketAtomicMetrics>,
+    pkid: AtomicU16,
 }
 
 pub fn new(
@@ -42,17 +39,30 @@ pub fn new(
     packet_metrics: Arc<PacketAtomicMetrics>,
 ) -> Box<dyn Client> {
     Box::new(MqttClientV311 {
-        status: RwLock::new(Status::Stopped),
+        status: AtomicU8::new(Status::Stopped as u8),
         client_conf,
         group_conf,
         client: RwLock::new(None),
         err: None,
-        publishes: vec![],
-        subscribes: vec![],
         stop_signal_tx: None,
         client_metrics,
         packet_metrics,
+        pkid: AtomicU16::new(1),
     })
+}
+
+impl MqttClientV311 {
+    fn get_pkid(&self) -> u16 {
+        let mut pkid = self.pkid.load(std::sync::atomic::Ordering::SeqCst);
+        if pkid == u16::MAX {
+            self.pkid.store(1, std::sync::atomic::Ordering::SeqCst);
+            pkid = 1;
+        } else {
+            self.pkid.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            pkid += 1;
+        }
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -92,7 +102,6 @@ impl Client for MqttClientV311 {
             mqtt_options.set_local_ip(local_ip);
         }
 
-        // let (stop_signal_tx, mut stop_signal_rx) = watch::channel(());
         let client = AsyncClient::new(
             self.client_metrics.clone(),
             mqtt_options,
@@ -102,31 +111,41 @@ impl Client for MqttClientV311 {
         self.client.write().await.replace(client);
     }
 
-    fn publish(
-        &self,
-        topic: String,
-        qos: mqtt::protocol::v3_mini::QoS,
-        payload: Arc<Bytes>,
-        pkid: u16,
-    ) {
-        // match &self.client {
-        //     Some(client) => {
-        //         let packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload, pkid);
-        //         client.send(Packet::Publish(packet));
-        //     }
-        //     None => {}
-        // }
+    async fn publish(&self, topic: String, qos: u8, payload: Arc<Bytes>) {
+        let qos = match qos {
+            0 => mqtt::protocol::v3_mini::QoS::AtMostOnce,
+            1 => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
+            2 => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+            _ => unreachable!(),
+        };
+
+        let mut packet = mqtt::protocol::v3_mini::v4::Publish::new(topic, qos, payload);
+        match qos {
+            mqtt::protocol::v3_mini::QoS::AtMostOnce => {}
+            mqtt::protocol::v3_mini::QoS::AtLeastOnce
+            | mqtt::protocol::v3_mini::QoS::ExactlyOnce => {
+                let pkid = self.get_pkid();
+                packet.set_pkid(pkid);
+            }
+        }
+
+        self.client
+            .read()
+            .await
+            .as_ref()
+            .unwrap()
+            .send(Packet::Publish(packet));
     }
 
-    fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
-        debug!("client subscirbe");
-        // match &self.client {
-        //     Some(client) => {
-        //         client.send(Packet::Subscribe(sub));
-        //     }
-        //     None => {}
-        // }
-    }
+    // fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+    //     debug!("client subscirbe");
+    //     // match &self.client {
+    //     //     Some(client) => {
+    //     //         client.send(Packet::Subscribe(sub));
+    //     //     }
+    //     //     None => {}
+    //     // }
+    // }
 
     async fn stop(&self) {
         // stop!(self);
@@ -136,37 +155,38 @@ impl Client for MqttClientV311 {
         update!(self, group_conf);
     }
 
-    async fn update_status(&self, status: Status) {
-        *self.status.write().await = status;
+    fn update_status(&self, status: Status) {
+        self.status
+            .store(status as u8, std::sync::atomic::Ordering::SeqCst);
     }
 
-    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
-        create_publish!(self, id, req);
-    }
+    // fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
+    //     create_publish!(self, id, req);
+    // }
 
-    fn update_publish(&mut self, id: &String, req: Arc<PublishConf>) {
-        update_publish!(self, id, req);
-    }
+    // fn update_publish(&mut self, id: &String, req: Arc<PublishConf>) {
+    //     update_publish!(self, id, req);
+    // }
 
-    fn delete_publish(&mut self, id: &String) {
-        delete_publish!(self, id);
-    }
+    // fn delete_publish(&mut self, id: &String) {
+    //     delete_publish!(self, id);
+    // }
 
-    async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
-        create_subscribe!(self, id, req);
-    }
+    // async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
+    //     create_subscribe!(self, id, req);
+    // }
 
-    async fn update_subscribe(
-        &mut self,
-        subscribe_id: &String,
-        conf: Arc<SubscribeCreateUpdateReq>,
-    ) {
-        update_subscribe!(self, subscribe_id, conf);
-    }
+    // async fn update_subscribe(
+    //     &mut self,
+    //     subscribe_id: &String,
+    //     conf: Arc<SubscribeCreateUpdateReq>,
+    // ) {
+    //     update_subscribe!(self, subscribe_id, conf);
+    // }
 
-    async fn delete_subscribe(&mut self, subscribe_id: &String) {
-        delete_subscribe!(self, subscribe_id);
-    }
+    // async fn delete_subscribe(&mut self, subscribe_id: &String) {
+    //     delete_subscribe!(self, subscribe_id);
+    // }
 
     async fn read(&self) -> ClientsListRespItem {
         todo!()

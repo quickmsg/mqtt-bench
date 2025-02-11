@@ -21,24 +21,17 @@ pub trait Client: Sync + Send {
     async fn start(&self);
     async fn stop(&self);
     async fn update(&mut self, group_conf: Arc<ClientGroupConf>);
-    async fn update_status(&self, status: Status);
+    fn update_status(&self, status: Status);
 
-    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>);
-    fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
-    fn delete_publish(&mut self, id: &String);
+    // fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>);
+    // fn update_publish(&mut self, id: &String, req: Arc<PublishConf>);
+    // fn delete_publish(&mut self, id: &String);
+    async fn publish(&self, topic: String, qos: u8, payload: Arc<Bytes>);
+    // fn subscribe(&self, sub: Subscribe);
 
-    fn publish(
-        &self,
-        topic: String,
-        qos: mqtt::protocol::v3_mini::QoS,
-        payload: Arc<Bytes>,
-        pkid: u16,
-    );
-    fn subscribe(&self, sub: Subscribe);
-
-    async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
-    async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
-    async fn delete_subscribe(&mut self, subscribe_id: &String);
+    // async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>);
+    // async fn update_subscribe(&mut self, subscribe_id: &String, req: Arc<SubscribeCreateUpdateReq>);
+    // async fn delete_subscribe(&mut self, subscribe_id: &String);
 
     async fn read(&self) -> ClientsListRespItem;
 }
@@ -162,24 +155,24 @@ macro_rules! create_publish {
     };
 }
 
-#[macro_export]
-macro_rules! update_publish {
-    ($self:expr, $id:expr, $req:expr) => {
-        let publish = $self
-            .publishes
-            .iter_mut()
-            .find(|publish| *publish.id == *$id)
-            .unwrap();
-        publish.conf = $req;
-    };
-}
+// #[macro_export]
+// macro_rules! update_publish {
+//     ($self:expr, $id:expr, $req:expr) => {
+//         let publish = $self
+//             .publishes
+//             .iter_mut()
+//             .find(|publish| *publish.id == *$id)
+//             .unwrap();
+//         publish.conf = $req;
+//     };
+// }
 
-#[macro_export]
-macro_rules! delete_publish {
-    ($self:expr, $id:expr) => {
-        $self.publishes.retain(|publish| *publish.id != *$id);
-    };
-}
+// #[macro_export]
+// macro_rules! delete_publish {
+//     ($self:expr, $id:expr) => {
+//         $self.publishes.retain(|publish| *publish.id != *$id);
+//     };
+// }
 
 #[macro_export]
 macro_rules! create_subscribe {

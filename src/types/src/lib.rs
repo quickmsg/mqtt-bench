@@ -252,12 +252,13 @@ pub struct SubscribeV50 {}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[repr(u8)]
 pub enum Status {
-    Starting,
-    Running,
-    Stopped,
-    Waiting,
-    Updating,
+    Starting = 0,
+    Running = 1,
+    Stopped = 2,
+    Waiting = 3,
+    Updating = 4,
 }
 
 #[derive(Deserialize)]

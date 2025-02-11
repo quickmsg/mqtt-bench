@@ -146,13 +146,7 @@ impl Client for WebsocketClientV50 {
         // stop!(self);
     }
 
-    fn publish(
-        &self,
-        topic: String,
-        qos: mqtt::protocol::v3_mini::QoS,
-        payload: Arc<Bytes>,
-        pkid: u16,
-    ) {
+    async fn publish(&self, topic: String, qos: u8, payload: Arc<Bytes>) {
         // self.client
         //     .as_ref()
         //     .unwrap()
@@ -160,11 +154,11 @@ impl Client for WebsocketClientV50 {
         //     .await;
     }
 
-    fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
-        todo!()
-    }
+    // fn subscribe(&self, sub: mqtt::protocol::v3_mini::v4::Subscribe) {
+    //     todo!()
+    // }
 
-    async fn update_status(&self, status: Status) {
+    fn update_status(&self, status: Status) {
         // update_status!(self, status);
     }
 
@@ -172,33 +166,33 @@ impl Client for WebsocketClientV50 {
         update!(self, group_conf);
     }
 
-    fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
-        create_publish!(self, id, req);
-    }
+    // fn create_publish(&mut self, id: Arc<String>, req: Arc<PublishConf>) {
+    //     create_publish!(self, id, req);
+    // }
 
-    fn update_publish(&mut self, id: &String, req: Arc<PublishConf>) {
-        update_publish!(self, id, req);
-    }
+    // fn update_publish(&mut self, id: &String, req: Arc<PublishConf>) {
+    //     update_publish!(self, id, req);
+    // }
 
-    fn delete_publish(&mut self, id: &String) {
-        delete_publish!(self, id);
-    }
+    // fn delete_publish(&mut self, id: &String) {
+    //     delete_publish!(self, id);
+    // }
 
-    async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
-        create_subscribe!(self, id, req);
-    }
+    // async fn create_subscribe(&mut self, id: Arc<String>, req: Arc<SubscribeCreateUpdateReq>) {
+    //     create_subscribe!(self, id, req);
+    // }
 
-    async fn update_subscribe(
-        &mut self,
-        subscribe_id: &String,
-        conf: Arc<SubscribeCreateUpdateReq>,
-    ) {
-        update_subscribe!(self, subscribe_id, conf);
-    }
+    // async fn update_subscribe(
+    //     &mut self,
+    //     subscribe_id: &String,
+    //     conf: Arc<SubscribeCreateUpdateReq>,
+    // ) {
+    //     update_subscribe!(self, subscribe_id, conf);
+    // }
 
-    async fn delete_subscribe(&mut self, subscribe_id: &String) {
-        delete_subscribe!(self, subscribe_id);
-    }
+    // async fn delete_subscribe(&mut self, subscribe_id: &String) {
+    //     delete_subscribe!(self, subscribe_id);
+    // }
 
     async fn read(&self) -> ClientsListRespItem {
         // read!(self)

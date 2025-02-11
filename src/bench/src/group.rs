@@ -347,9 +347,9 @@ impl Group {
             debug!("mill cnt {:?}", mill_cnt);
             let topic = publish.topic.clone();
             let qos = match publish.qos {
-                types::Qos::AtMostOnce => mqtt::protocol::v3_mini::QoS::AtMostOnce,
-                types::Qos::AtLeastOnce => mqtt::protocol::v3_mini::QoS::AtLeastOnce,
-                types::Qos::ExactlyOnce => mqtt::protocol::v3_mini::QoS::ExactlyOnce,
+                types::Qos::AtMostOnce => 0,
+                types::Qos::AtLeastOnce => 1,
+                types::Qos::ExactlyOnce => 2,
             };
 
             let payload = match (publish.size, publish.payload) {
@@ -366,8 +366,6 @@ impl Group {
             let payload = Arc::new(payload);
             let client_pos = 0;
             let client_len = clients.len();
-            // TODO pkid 重复问题
-            let mut pkid: u16 = 1;
             debug!("client start publish");
             loop {
                 select! {
@@ -376,7 +374,7 @@ impl Group {
                     }
 
                     _ = interval.tick() => {
-                        Self::client_publish(&clients, client_pos, mill_cnt, &topic, qos, &payload, client_len, &mut pkid).await;
+                        Self::client_publish(&clients, client_pos, mill_cnt, &topic, qos, &payload, client_len).await;
                     }
                 }
             }
@@ -389,7 +387,7 @@ impl Group {
         range_pos: &mut usize,
         mill_cnt: usize,
         topic: &String,
-        qos: mqtt::protocol::v3_mini::QoS,
+        qos: u8,
         payload: &Arc<Bytes>,
         pkid: &mut u16,
     ) {
@@ -400,7 +398,7 @@ impl Group {
             }
 
             let topic = topic.replace("{index}", range_pos.to_string().as_str());
-            clients[0].publish(topic, qos, payload.clone(), *pkid);
+            clients[0].publish(topic, qos, payload.clone());
 
             if *range_pos == range {
                 *range_pos = 0;
@@ -415,22 +413,16 @@ impl Group {
         mut client_pos: usize,
         mill_cnt: usize,
         topic: &String,
-        qos: mqtt::protocol::v3_mini::QoS,
+        qos: u8,
         payload: &Arc<Bytes>,
         client_len: usize,
-        pkid: &mut u16,
     ) {
         for _ in 0..mill_cnt {
-            clients[client_pos].publish(topic.clone(), qos, payload.clone(), *pkid);
+            clients[client_pos]
+                .publish(topic.clone(), qos, payload.clone())
+                .await;
             client_pos += 1;
             client_pos %= client_len;
-
-            if client_pos == 0 {
-                *pkid += 1;
-                if *pkid == u16::MAX {
-                    *pkid = 1;
-                }
-            }
         }
     }
 
@@ -439,23 +431,22 @@ impl Group {
         mut client_pos: usize,
         mill_cnt: usize,
         topic: &String,
-        qos: mqtt::protocol::v3_mini::QoS,
+        qos: u8,
         payload: &Arc<Bytes>,
         client_len: usize,
-        pkid: &mut u16,
     ) {
-        for _ in 0..mill_cnt {
-            clients[client_pos].publish(topic.clone(), qos, payload.clone(), *pkid);
-            client_pos += 1;
-            client_pos %= client_len;
+        // for _ in 0..mill_cnt {
+        //     clients[client_pos].publish(topic.clone(), qos, payload.clone());
+        //     client_pos += 1;
+        //     client_pos %= client_len;
 
-            if client_pos == 0 {
-                *pkid += 1;
-                if *pkid == u16::MAX {
-                    *pkid = 1;
-                }
-            }
-        }
+        //     if client_pos == 0 {
+        //         *pkid += 1;
+        //         if *pkid == u16::MAX {
+        //             *pkid = 1;
+        //         }
+        //     }
+        // }
     }
 
     pub async fn stop(&mut self) {
