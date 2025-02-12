@@ -59,11 +59,9 @@ async fn main() {
     let hosts = vec![args.host.clone()];
 
     bench::update_broker(BrokerUpdateReq {
-        hosts,
-        username: None,
-        password: None,
-        client_id: None,
+        broker_hosts: hosts,
         connect_interval: 1,
+        keep_alive: 60,
         statistics_interval: 1,
         local_ips,
     })

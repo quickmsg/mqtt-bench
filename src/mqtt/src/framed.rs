@@ -220,7 +220,7 @@ impl Network {
             Packet::Disconnect => todo!(),
             _ => unreachable!(),
         }
-        self.framed.send(packet).await.unwrap();
+        self.framed.send(packet).await;
         Ok(())
     }
 }

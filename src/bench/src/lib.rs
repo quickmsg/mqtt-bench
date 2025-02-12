@@ -128,11 +128,9 @@ impl Default for RuntimeInstance {
     fn default() -> Self {
         Self {
             broker_info: RwLock::new(Arc::new(BrokerUpdateReq {
-                hosts: vec!["127.0.0.1".into()],
-                username: None,
-                password: None,
-                client_id: None,
+                broker_hosts: vec!["127.0.0.1".into()],
                 connect_interval: 1,
+                keep_alive: 60,
                 statistics_interval: 1,
                 local_ips: None,
             })),

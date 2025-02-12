@@ -7,12 +7,10 @@ pub mod group;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BrokerUpdateReq {
-    pub hosts: Vec<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub client_id: Option<String>,
+    pub broker_hosts: Vec<String>,
     // 每micro秒
     pub connect_interval: u64,
+    pub keep_alive: u16,
     // 秒
     pub statistics_interval: u64,
 
@@ -323,8 +321,11 @@ pub struct PacketMetrics {
     pub conn_ack_total: usize,
     pub conn_ack_cnt: usize,
 
-    pub pub_ack_total: usize,
-    pub pub_ack_cnt: usize,
+    pub in_pub_ack_total: usize,
+    pub in_pub_ack_cnt: usize,
+
+    pub out_pub_ack_total: usize,
+    pub out_pub_ack_cnt: usize,
 
     pub unsub_ack_total: usize,
     pub unsub_ack_cnt: usize,
@@ -335,20 +336,29 @@ pub struct PacketMetrics {
     pub ping_resp_total: usize,
     pub ping_resp_cnt: usize,
 
-    pub outgoing_publish_total: usize,
-    pub outgoing_publish_cnt: usize,
+    pub in_publish_total: usize,
+    pub in_publish_cnt: usize,
 
-    pub incoming_publish_total: usize,
-    pub incoming_publish_cnt: usize,
+    pub out_publish_total: usize,
+    pub out_publish_cnt: usize,
 
-    pub pub_rel_total: usize,
-    pub pub_rel_cnt: usize,
+    pub in_pub_rec_total: usize,
+    pub in_pub_rec_cnt: usize,
 
-    pub pub_rec_total: usize,
-    pub pub_rec_cnt: usize,
+    pub out_pub_rec_total: usize,
+    pub out_pub_rec_cnt: usize,
 
-    pub pub_comp_total: usize,
-    pub pub_comp_cnt: usize,
+    pub in_pub_rel_total: usize,
+    pub in_pub_rel_cnt: usize,
+
+    pub out_pub_rel_total: usize,
+    pub out_pub_rel_cnt: usize,
+
+    pub in_pub_comp_total: usize,
+    pub in_pub_comp_cnt: usize,
+
+    pub out_pub_comp_total: usize,
+    pub out_pub_comp_cnt: usize,
 
     pub subscribe_total: usize,
     pub subscribe_cnt: usize,

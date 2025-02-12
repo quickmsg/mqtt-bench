@@ -19,7 +19,7 @@ use tokio::{
     },
     time,
 };
-use tracing::{debug, info};
+use tracing::debug;
 use types::{
     group::{ClientAtomicMetrics, PacketAtomicMetrics},
     BrokerUpdateReq, ClientMetrics, ClientUsizeMetrics, ClientsListResp, ClientsQueryParams,
@@ -174,8 +174,8 @@ impl Group {
             };
             let client_conf = client::ClientConf {
                 client_id,
-                host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
-                keep_alive: u16::MAX,
+                host: broker_info.broker_hosts[index % broker_info.broker_hosts.len()].clone(),
+                keep_alive: broker_info.keep_alive,
                 username: None,
                 password: None,
                 local_ip,
@@ -243,7 +243,7 @@ impl Group {
 
             let client_conf = client::ClientConf {
                 client_id: cli_client_conf.0,
-                host: broker_info.hosts[index % broker_info.hosts.len()].clone(),
+                host: broker_info.broker_hosts[index % broker_info.broker_hosts.len()].clone(),
                 keep_alive: u16::MAX,
                 username: Some(cli_client_conf.1),
                 password: Some(cli_client_conf.2),
@@ -471,32 +471,32 @@ impl Group {
         total_packet_metrics: &mut PacketUsizeMetrics,
         start_time: &DateTime<Local>,
     ) {
-        let elapsed = Local::now().signed_duration_since(*start_time);
-        let hour = elapsed.num_hours();
-        let minute = elapsed.num_minutes();
-        let seconds = elapsed.num_seconds();
-        if hour > 0 {
-            info!("运行时长: {}小时{}分{}秒", hour, minute, seconds);
-        } else if minute > 0 {
-            info!("运行时长: {}分{}秒", minute, seconds);
-        } else {
-            info!("运行时长: {}秒", seconds);
-        }
+        // let elapsed = Local::now().signed_duration_since(*start_time);
+        // let hour = elapsed.num_hours();
+        // let minute = elapsed.num_minutes();
+        // let seconds = elapsed.num_seconds();
+        // if hour > 0 {
+        //     info!("运行时长: {}小时{}分{}秒", hour, minute, seconds);
+        // } else if minute > 0 {
+        //     info!("运行时长: {}分{}秒", minute, seconds);
+        // } else {
+        //     info!("运行时长: {}秒", seconds);
+        // }
 
         let client_usize_metrics = client_metrics.take_metrics();
         let prev = running_client.fetch_add(
             client_usize_metrics.running_cnt as u32,
             std::sync::atomic::Ordering::SeqCst,
         );
-        info!(
-            "running client: {:?}",
-            prev + client_usize_metrics.running_cnt as u32
-        );
+        // info!(
+        //     "running client: {:?}",
+        //     prev + client_usize_metrics.running_cnt as u32
+        // );
 
         let pakcet_usize_metrics = packet_metrics.take_metrics();
-        info!("当前包: {:?}", pakcet_usize_metrics);
+        // info!("当前包: {:?}", pakcet_usize_metrics);
         *total_packet_metrics += pakcet_usize_metrics;
-        info!("历史包: {:?}", total_packet_metrics);
+        // info!("历史包: {:?}", total_packet_metrics);
         // history_metrics
         //     .lock()
         //     .await
@@ -516,19 +516,12 @@ impl Group {
                 select! {
                     _ = stop_signal_rx.recv() => {
                         debug!("sotp signal rx recv");
-                        // TODO 停止client
                         break;
                     }
 
                     _ = connect_interval.tick() => {
                         if index < clients.len() {
                             clients[index].start().await;
-                            // match self.get_sub(index) {
-                            //     Some(sub) => {
-                            //         self.clients[index].subscribe(sub);
-                            //     }
-                            //     None => {}
-                            // }
                             index += 1;
                         } else {
                             done_tx.send(()).unwrap();
@@ -905,23 +898,33 @@ impl Group {
                         packet: PacketMetrics {
                             conn_ack_total,
                             conn_ack_cnt: metric.2.conn_ack,
-                            pub_ack_cnt: metric.2.pub_ack,
+
                             unsub_ack_total,
                             unsub_ack_cnt: metric.2.unsub_ack,
                             ping_req_total,
                             ping_req_cnt: metric.2.ping_req,
                             ping_resp_total,
                             ping_resp_cnt: metric.2.ping_resp,
-                            outgoing_publish_total,
-                            outgoing_publish_cnt: metric.2.outgoing_publish,
-                            incoming_publish_total,
-                            incoming_publish_cnt: metric.2.incoming_publish,
-                            pub_rel_total,
-                            pub_rel_cnt: metric.2.pub_rel,
-                            pub_rec_total,
-                            pub_rec_cnt: metric.2.pub_rec,
-                            pub_comp_total,
-                            pub_comp_cnt: metric.2.pub_comp,
+                            out_publish_total,
+                            out_publish_cnt: metric.2.out_publish,
+                            in_publish_total,
+                            in_publish_cnt: metric.2.in_publish,
+                            in_pub_ack_total,
+                            in_pub_ack_cnt: metric.2.in_pub_ack,
+                            out_pub_ack_total,
+                            out_pub_ack_cnt: metric.2.out_pub_ack,
+                            in_pub_rec_total,
+                            in_pub_rec_cnt: metric.2.in_pub_rec,
+                            out_pub_rec_total,
+                            out_pub_rec_cnt: metric.2.out_pub_rec,
+                            in_pub_rel_total,
+                            in_pub_rel_cnt: metric.2.in_pub_rel,
+                            out_pub_rel_total,
+                            out_pub_rel_cnt: metric.2.out_pub_rel,
+                            in_pub_comp_total,
+                            in_pub_comp_cnt: metric.2.in_pub_comp,
+                            out_pub_comp_total,
+                            out_pub_comp_cnt: metric.2.in_pub_comp,
                             subscribe_total,
                             subscribe_cnt: metric.2.subscribe,
                             sub_ack_total,

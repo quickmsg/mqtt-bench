@@ -96,7 +96,6 @@ impl EventLoop {
             loop {
                 match eventloop.connect().await {
                     Ok(network) => {
-                        debug!("network connect success");
                         eventloop = eventloop.run_loop(network).await.unwrap();
                     }
                     Err(e) => {
@@ -134,9 +133,19 @@ impl EventLoop {
     }
 
     fn run_loop(mut self, mut network: Network) -> JoinHandle<Self> {
+        let mut keep_alive_timeout = Box::pin(tokio::time::sleep(Duration::from_secs(
+            self.mqtt_options.keep_alive() as u64,
+        )));
         tokio::spawn(async move {
             loop {
                 select! {
+                    _ = &mut keep_alive_timeout => {
+                        let ping = Packet::PingReq;
+                        if let Err(e) = network.write(ping, &self.packet_metrics).await {
+                            return self;
+                        }
+                    }
+
                     packet = network.framed.next() => {
                         if !network.handle_incoming_packet(packet, &self.packet_metrics).await {
                             return self;

@@ -74,13 +74,9 @@ impl Packet {
     pub fn read(stream: &mut BytesMut, max_size: usize) -> Result<Self, Error> {
         let fixed_header = check(stream.iter(), max_size)?;
 
-        debug!("{:?}", fixed_header);
-
         // Test with a stream with exactly the size to check border panics
         let packet = stream.split_to(fixed_header.frame_length());
         let packet_type = fixed_header.packet_type()?;
-
-        debug!("{:?}", packet_type);
 
         if fixed_header.remaining_len == 0 {
             // no payload packets
