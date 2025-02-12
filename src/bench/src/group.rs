@@ -1,5 +1,8 @@
 use std::{
-    sync::{atomic::AtomicU32, Arc},
+    sync::{
+        atomic::{AtomicU32, AtomicU8},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -37,7 +40,7 @@ use crate::{
 // 运行中不允许更新，降低复杂度
 pub struct Group {
     pub id: String,
-    pub status: Status,
+    pub status: Arc<AtomicU8>,
     pub conf: GroupCreateReq,
 
     clients: Arc<Vec<Box<dyn Client>>>,
@@ -89,7 +92,7 @@ impl Group {
 
         Self {
             id,
-            status: Status::Stopped,
+            status: Arc::new(AtomicU8::new(Status::Stopped as u8)),
             conf: req,
             clients,
             history_metrics: None,
@@ -296,10 +299,12 @@ impl Group {
 
     pub fn start(&mut self, done_tx: mpsc::UnboundedSender<()>) {
         tokio::spawn(async move {});
-        match self.status {
+        let status = Status::from(self.status.load(std::sync::atomic::Ordering::SeqCst));
+        match status {
             Status::Starting | Status::Running => return,
             Status::Stopped | Status::Waiting | Status::Updating => {
-                self.status = Status::Starting;
+                self.status
+                    .store(Status::Starting as u8, std::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -310,6 +315,7 @@ impl Group {
         let (start_clients_done_tx, start_clients_done_rx) = oneshot::channel();
         self.start_clients(start_clients_done_tx);
         Self::wait_clients_start(
+            self.status.clone(),
             done_tx,
             self.stop_signal_tx.clone(),
             self.clients.clone(),
@@ -319,6 +325,7 @@ impl Group {
     }
 
     fn wait_clients_start(
+        status: Arc<AtomicU8>,
         done_tx: UnboundedSender<()>,
         stop_sgianl_tx: tokio::sync::broadcast::Sender<()>,
         clients: Arc<Vec<Box<dyn Client>>>,
@@ -327,6 +334,7 @@ impl Group {
     ) {
         tokio::spawn(async move {
             let _ = start_clients_done_rx.await;
+            status.store(Status::Running as u8, std::sync::atomic::Ordering::SeqCst);
             done_tx.send(()).unwrap();
             for (_, publish) in publishes {
                 Self::start_publish(stop_sgianl_tx.subscribe(), clients.clone(), publish);
@@ -421,10 +429,12 @@ impl Group {
     }
 
     pub async fn stop(&mut self) {
-        match self.status {
+        let status = Status::from(self.status.load(std::sync::atomic::Ordering::SeqCst));
+        match status {
             Status::Stopped => return,
             Status::Starting | Status::Running | Status::Waiting | Status::Updating => {
-                self.status = Status::Stopped;
+                self.status
+                    .store(Status::Stopped as u8, std::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -944,25 +954,26 @@ impl Group {
         }
     }
 
-    pub async fn update_status(&mut self, status: Status) {
-        self.status = status;
-        let client_status = match status {
-            Status::Starting => Status::Waiting,
-            Status::Stopped => Status::Stopped,
-            Status::Waiting => Status::Waiting,
-            _ => {
-                return;
-            }
-        };
+    // pub async fn update_status(&mut self, status: Status) {
+    //     self.status = status;
+    //     let client_status = match status {
+    //         Status::Starting => Status::Waiting,
+    //         Status::Stopped => Status::Stopped,
+    //         Status::Waiting => Status::Waiting,
+    //         _ => {
+    //             return;
+    //         }
+    //     };
 
-        for client in self.clients.iter() {
-            // client.update_status(client_status);
-            todo!()
-        }
-    }
+    //     for client in self.clients.iter() {
+    //         // client.update_status(client_status);
+    //         todo!()
+    //     }
+    // }
 
     fn check_stopped(&self) -> Result<()> {
-        match self.status {
+        let status = Status::from(self.status.load(std::sync::atomic::Ordering::SeqCst));
+        match status {
             Status::Stopped => Ok(()),
             _ => bail!("请先停止组后再进行操作！"),
         }

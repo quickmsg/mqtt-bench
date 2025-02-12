@@ -268,6 +268,19 @@ pub enum Status {
     Updating = 4,
 }
 
+impl From<u8> for Status {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Status::Starting,
+            1 => Status::Running,
+            2 => Status::Stopped,
+            3 => Status::Waiting,
+            4 => Status::Updating,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ClientsQueryParams {
     pub p: usize,

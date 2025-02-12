@@ -145,13 +145,9 @@ pub async fn read_broker() -> BrokerUpdateReq {
 }
 
 pub async fn update_broker(info: BrokerUpdateReq) -> Result<()> {
-    if RUNTIME_INSTANCE
-        .groups
-        .read()
-        .await
-        .iter()
-        .any(|group| group.status != Status::Stopped)
-    {
+    if RUNTIME_INSTANCE.groups.read().await.iter().any(|group| {
+        Status::from(group.status.load(std::sync::atomic::Ordering::SeqCst)) != Status::Stopped
+    }) {
         Err(anyhow::anyhow!("请停止所有的组后再进行修改！"))
     } else {
         *RUNTIME_INSTANCE.broker_info.write().await = Arc::new(info);
@@ -177,7 +173,7 @@ pub async fn list_groups() -> GroupListResp {
         .rev()
         .map(|group| GroupListRespItem {
             id: group.id.clone(),
-            status: group.status,
+            status: Status::from(group.status.load(std::sync::atomic::Ordering::SeqCst)),
             conf: group.conf.clone(),
         })
         .collect();
